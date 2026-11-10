@@ -2,7 +2,7 @@ package config
 
 import "strings"
 
-// Capability is the kind of a site and whether mybox drives it.
+// Capability is the kind of a site and whether QuickBo drives it.
 type Capability struct {
 	Kind   string
 	Level  Level
@@ -106,7 +106,7 @@ func Classify(s Site) Capability {
 }
 
 func jarReason(api string) string {
-	return "JAR/DEX 爬虫（" + strings.TrimSpace(api) + "）本版不执行。mybox 不加载 jar，也不会运行 csp_* Android 类。"
+	return "JAR/DEX 爬虫（" + strings.TrimSpace(api) + "）本版不执行。QuickBo 不加载 jar，也不会运行 csp_* Android 类。"
 }
 
 func stripQuery(s string) string {

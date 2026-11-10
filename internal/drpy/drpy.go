@@ -15,8 +15,8 @@ import (
 	"sync"
 
 	"github.com/dop251/goja"
-	"github.com/harrylyx/mybox/internal/httpx"
-	"github.com/harrylyx/mybox/internal/model"
+	"github.com/harrylyx/QuickBo/internal/httpx"
+	"github.com/harrylyx/QuickBo/internal/model"
 )
 
 // Engine is one compiled script.

@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
-	"github.com/harrylyx/mybox/internal/model"
+	"github.com/harrylyx/QuickBo/internal/model"
 )
 
 func parseList(body, spec, base string) []model.Item {

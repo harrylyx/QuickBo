@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/harrylyx/mybox/internal/config"
+	"github.com/harrylyx/QuickBo/internal/config"
 )
 
 func TestJarDoesNotPanic(t *testing.T) {

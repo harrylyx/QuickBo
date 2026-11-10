@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/harrylyx/mybox/internal/httpx"
+	"github.com/harrylyx/QuickBo/internal/httpx"
 )
 
 // Load reads a subscription from an http(s) URL or a local path.

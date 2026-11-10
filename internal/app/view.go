@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
-	"github.com/harrylyx/mybox/internal/config"
-	"github.com/harrylyx/mybox/internal/model"
+	"github.com/harrylyx/QuickBo/internal/config"
+	"github.com/harrylyx/QuickBo/internal/model"
 )
 
 // View draws one frame. The chrome is a dark cinema layout: a narrow
@@ -56,8 +56,8 @@ func (a *App) viewWelcome(c *ui.Context, th *ui.Theme) {
 		})
 		ui.Column(c).Fill().Center().Children(func() {
 			ui.Column(c).Width(560).Gap(14).Children(func() {
-				ui.Text(c, "MYBOX").FontSize(13).Bold().TextColor(th.Accent)
-				ui.Text(c, "mybox").FontSize(52).Bold()
+				ui.Text(c, "QUICKBO").FontSize(13).Bold().TextColor(th.Accent)
+				ui.Text(c, "QuickBo").FontSize(52).Bold()
 				ui.Text(c, "一台不带片源的播放器。").FontSize(20).TextColor(th.TextMuted)
 				ui.Text(c, "不内置任何片源。把你自己的配置 URL 或本地 JSON 加进来，再浏览、搜索和播放。").TextColor(th.TextMuted).Wrap()
 				ui.Text(c, "JSON / XML CMS、一部分 JS（drpy）和 XBPQ 规则可以直接用。JAR/DEX 爬虫会列出来，但本版不执行 jar。").TextColor(th.TextMuted).Wrap()
@@ -81,7 +81,7 @@ func (a *App) viewAdd(c *ui.Context, th *ui.Theme) {
 	ui.Modal(c, &a.adding, func() {
 		ui.Column(c).Width(440).Gap(14).Children(func() {
 			ui.Text(c, "配置").FontSize(22).Bold()
-			ui.Text(c, "TVBox / FongMi 订阅的 URL，或本机 JSON。mybox 不内置任何片源。").TextColor(th.TextMuted).Wrap()
+			ui.Text(c, "TVBox / FongMi 订阅的 URL，或本机 JSON。QuickBo 不内置任何片源。").TextColor(th.TextMuted).Wrap()
 			ui.Text(c, "配置 URL").FontSize(12).Bold().TextColor(th.TextMuted)
 			field := ui.TextInput(c, &a.urlDraft).Placeholder("https://example.com/tvbox.json").Label("配置 URL")
 			if field.Submitted() {
@@ -124,7 +124,7 @@ func (a *App) viewAdd(c *ui.Context, th *ui.Theme) {
 func (a *App) viewSidebar(c *ui.Context, th *ui.Theme) {
 	ui.Column(c).Width(236).FillHeight().Background(sidebarInk(a.light)).Padding(18, 12, 12, 12).Gap(14).Children(func() {
 		ui.Column(c).Gap(2).Padding(4, 8, 0, 8).Children(func() {
-			ui.Text(c, "mybox").FontSize(20).Bold()
+			ui.Text(c, "QuickBo").FontSize(20).Bold()
 			ui.Text(c, "自备片源").FontSize(12).TextColor(th.TextMuted)
 		})
 		side := ui.Sidebar(c, &a.sideSel, func() {
@@ -219,7 +219,7 @@ func (a *App) headline() string {
 	if m, ok := a.currentMeta(); ok && a.screen != screenIndex {
 		return m.Name
 	}
-	return "mybox"
+	return "QuickBo"
 }
 
 func (a *App) viewBrowse(c *ui.Context, th *ui.Theme) {
@@ -598,7 +598,7 @@ func (a *App) viewUnsupported(c *ui.Context, th *ui.Theme) {
 				}
 				ui.Text(c, reason).Wrap()
 				if m.Kind == config.KindJar {
-					ui.Text(c, "mybox 不执行 jar，也不会去加载 DEX。换一个 CMS、JS 或 XBPQ 源即可。").TextColor(th.TextMuted).Wrap()
+					ui.Text(c, "QuickBo 不执行 jar，也不会去加载 DEX。换一个 CMS、JS 或 XBPQ 源即可。").TextColor(th.TextMuted).Wrap()
 				}
 				if m.API != "" {
 					ui.Text(c, m.API).FontSize(12).TextColor(th.TextMuted).Selectable().Wrap()

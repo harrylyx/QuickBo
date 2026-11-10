@@ -9,13 +9,13 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/harrylyx/mybox/internal/cms"
-	"github.com/harrylyx/mybox/internal/config"
-	"github.com/harrylyx/mybox/internal/drpy"
-	"github.com/harrylyx/mybox/internal/httpx"
-	"github.com/harrylyx/mybox/internal/live"
-	"github.com/harrylyx/mybox/internal/model"
-	"github.com/harrylyx/mybox/internal/xbpq"
+	"github.com/harrylyx/QuickBo/internal/cms"
+	"github.com/harrylyx/QuickBo/internal/config"
+	"github.com/harrylyx/QuickBo/internal/drpy"
+	"github.com/harrylyx/QuickBo/internal/httpx"
+	"github.com/harrylyx/QuickBo/internal/live"
+	"github.com/harrylyx/QuickBo/internal/model"
+	"github.com/harrylyx/QuickBo/internal/xbpq"
 )
 
 // Meta describes a site for the source list.

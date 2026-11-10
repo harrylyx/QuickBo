@@ -1,4 +1,4 @@
-# mybox
+# QuickBo
 
 桌面端的 TVBox 兼容播放器。界面用 [mygo](https://github.com/egoist/mygo) 的**原生 GPU UI**（`package ui`，Metal / Direct3D / OpenGL）绘制，不使用 WebView。
 
@@ -45,26 +45,26 @@
 
 ```bash
 go test ./...
-CGO_ENABLED=0 go build -o mybox ./cmd/mybox
-./mybox
+CGO_ENABLED=0 go build -o quickbo ./cmd/quickbo
+./quickbo
 ```
 
 也可以直接打开一份配置：
 
 ```bash
-./mybox --config https://example.com/tvbox.json
-./mybox /path/to/tvbox.json
+./quickbo --config https://example.com/tvbox.json
+./quickbo /path/to/tvbox.json
 ```
 
 跨平台编译同样不需要 cgo：
 
 ```bash
-CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o mybox.exe ./cmd/mybox
-CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -o mybox ./cmd/mybox
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o mybox ./cmd/mybox
+CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o quickbo.exe ./cmd/quickbo
+CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -o quickbo ./cmd/quickbo
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o quickbo ./cmd/quickbo
 ```
 
-上次用过的配置记在用户配置目录的 `mybox/settings.json`，下次启动会自动打开。删掉这个文件就回到空壳。
+上次用过的配置记在用户配置目录的 `quickbo/settings.json`，下次启动会自动打开。删掉这个文件就回到空壳。
 
 ## 参考与许可
 

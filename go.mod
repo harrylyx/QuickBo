@@ -1,4 +1,4 @@
-module github.com/harrylyx/mybox
+module github.com/harrylyx/QuickBo
 
 go 1.27.3
 

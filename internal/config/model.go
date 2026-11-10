@@ -2,7 +2,7 @@
 //
 // The wire format is the public subscription shape used across that
 // ecosystem: a JSON object (sometimes base64 or gzip wrapped, sometimes
-// with comments) describing sites, lives and parses. mybox ships with
+// with comments) describing sites, lives and parses. QuickBo ships with
 // no subscriptions of its own.
 package config
 
@@ -20,7 +20,7 @@ const (
 	TypeRemote = 4
 )
 
-// Level is how far mybox can drive a site.
+// Level is how far QuickBo can drive a site.
 type Level int
 
 const (
