@@ -28,6 +28,19 @@ func TestParsePlayBareURL(t *testing.T) {
 	}
 }
 
+func TestResolveURLAndPreferredLine(t *testing.T) {
+	if got := ResolveURL("https://api.example/vod", "//cdn.example/a.jpg"); got != "https://cdn.example/a.jpg" {
+		t.Fatalf("protocol relative %q", got)
+	}
+	if got := ResolveURL("https://api.example/provide/vod/", "/cover/a.jpg"); got != "https://api.example/cover/a.jpg" {
+		t.Fatalf("relative %q", got)
+	}
+	lines := ParsePlay("share$$$m3u8", "1$https://cdn/share/abc$$$1$https://cdn/a/index.m3u8")
+	if PreferredLine(lines) != 1 {
+		t.Fatalf("preferred %d", PreferredLine(lines))
+	}
+}
+
 func TestStripTags(t *testing.T) {
 	if got := StripTags("<p>你好&amp;世界</p>"); got != "你好&世界" {
 		t.Fatalf("%q", got)
