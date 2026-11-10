@@ -238,7 +238,11 @@ func (a *App) viewTop(c *ui.Context, th *ui.Theme) {
 	if a.loading || a.loadErr != "" {
 		ui.Column(c).Padding(0, pagePad, 10, pagePad).Gap(8).Children(func() {
 			if a.loading {
-				a.loadingRow(c, th, "正在读取新的配置…")
+				msg := "正在读取新的配置…"
+				if a.loadNote != "" {
+					msg = a.loadNote
+				}
+				a.loadingRow(c, th, msg)
 			}
 			if a.loadErr != "" {
 				a.note(c, th, a.loadErr, true)
@@ -801,6 +805,17 @@ func (a *App) viewUnsupported(c *ui.Context, th *ui.Theme) {
 }
 
 func (a *App) viewIndex(c *ui.Context, th *ui.Theme) {
+	if a.loading {
+		ui.Column(c).Gap(8).Padding(8, 0).Children(func() {
+			msg := a.loadNote
+			if msg == "" {
+				msg = "正在批量加载配置…"
+			}
+			a.loadingRow(c, th, msg)
+			ui.Text(c, "打不开，或第一页没有内容的源，不会出现在侧栏。").TextColor(th.TextMuted).Wrap()
+		})
+		return
+	}
 	ui.Scroll(c).Grow(1).Children(func() {
 		ui.Column(c).Gap(12).Children(func() {
 			ui.Text(c, "这是一份仓库索引，还不是点播配置。").FontSize(22).Bold()

@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/egoist/mygo"
@@ -54,8 +55,18 @@ type App struct {
 	cfgRef   string
 	loading  bool
 	loadErr  string
+	loadNote string
 	adding   bool
 	urlDraft string
+
+	loadCtx    context.Context
+	loadCancel context.CancelFunc
+	// fetchConfig overrides subscription loading in tests.
+	fetchConfig func(context.Context, string) (*config.Config, error)
+	// probeSite overrides the empty-list check in tests.
+	probeSite func(context.Context, source.Source) bool
+	afterLoad func()
+	postMu    sync.Mutex
 
 	screen    string
 	sideSel   string
@@ -184,18 +195,20 @@ func (a *App) Load(ref string) {
 	}
 	a.loading = true
 	a.loadErr = ""
-	gen := a.bump()
+	a.loadNote = ""
+	ctx, gen := a.beginLoad()
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
-		cfg, err := config.Load(ctx, ref)
+		cfg, err := a.fetch(cctx, ref)
 		a.post(func() {
 			if a.gen != gen {
 				return
 			}
-			a.loading = false
 			if err != nil {
+				a.loading = false
 				a.loadErr = err.Error()
+				a.doneLoad()
 				return
 			}
 			a.apply(cfg, ref)
@@ -238,11 +251,16 @@ func (a *App) apply(cfg *config.Config, ref string) {
 		if len(a.catalog.Index) > 0 {
 			a.screen = screenIndex
 			a.sideSel = ""
+			a.expandIndex(a.catalog.Index)
 			return
 		}
+		a.loading = false
 		a.screen = screenEmpty
+		a.doneLoad()
 		return
 	}
+	a.loading = false
+	a.doneLoad()
 	for _, s := range a.catalog.Sites {
 		if s.Meta().Level != config.LevelNo {
 			a.selectSite(s.Meta().Key)
@@ -816,7 +834,9 @@ func (a *App) bump() int {
 
 func (a *App) post(fn func()) {
 	if a.win == nil {
+		a.postMu.Lock()
 		fn()
+		a.postMu.Unlock()
 		return
 	}
 	a.win.Update(fn)
