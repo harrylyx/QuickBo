@@ -19,13 +19,15 @@ func (a *App) View(c *ui.Context) {
 	a.playerKeys(c)
 	if a.catalog == nil {
 		a.viewWelcome(c, th)
+	} else if a.screen == screenPlay {
+		ui.Box(c).Fill().Background(ui.Hex("#000000")).Children(func() {
+			a.viewPlay(c, th)
+		})
 	} else {
 		ui.Row(c).Fill().AlignItems(ui.Stretch).Children(func() {
 			a.viewSidebar(c, th)
 			ui.Column(c).Grow(1).Padding(22, 28, 18, 28).Gap(16).Children(func() {
-				if a.screen != screenPlay {
-					a.viewTop(c, th)
-				}
+				a.viewTop(c, th)
 				switch a.screen {
 				case screenHome:
 					a.viewBrowse(c, th)
@@ -39,8 +41,6 @@ func (a *App) View(c *ui.Context) {
 					a.viewUnsupported(c, th)
 				case screenDetail:
 					a.viewDetail(c, th)
-				case screenPlay:
-					a.viewPlay(c, th)
 				case screenLive:
 					a.viewLive(c, th)
 				case screenEmpty:
@@ -182,16 +182,26 @@ func (a *App) viewTop(c *ui.Context, th *ui.Theme) {
 			ui.Text(c, a.headline()).FontSize(22).Bold().SingleLine()
 		})
 		ui.Column(c).Grow(1)
-		if a.screen == screenBrowse || a.screen == screenLive || a.screen == screenDetail {
+		if a.screen == screenBrowse || a.screen == screenHome || a.screen == screenLive || a.screen == screenDetail {
 			ph := "搜索片名，回车"
 			if a.screen == screenLive {
 				ph = "过滤频道"
 			}
 			field := ui.SearchField(c, &a.query).Placeholder(ph).Width(280).Label("搜索")
-			if a.screen == screenBrowse && (field.Submitted() || (field.Changed() && strings.TrimSpace(a.query) == "")) {
-				a.pageNum = 1
-				a.screen = screenBrowse
-				a.loadList()
+			if a.screen == screenBrowse || a.screen == screenHome {
+				cleared := field.Changed() && strings.TrimSpace(a.query) == "" && a.committed != ""
+				if field.Submitted() || cleared {
+					a.committed = strings.TrimSpace(a.query)
+					a.pageNum = 1
+					if a.committed == "" {
+						a.screen = screenHome
+						a.sideSel = "home"
+						a.lastSide = "home"
+					} else {
+						a.screen = screenBrowse
+					}
+					a.loadList()
+				}
 			}
 		}
 		if ui.Button(c, "配置").Clicked() {
@@ -252,8 +262,10 @@ func (a *App) headline() string {
 }
 
 func (a *App) viewBrowse(c *ui.Context, th *ui.Theme) {
-	searching := strings.TrimSpace(a.query) != ""
-	ui.Scroll(c).Grow(1).Children(func() {
+	searching := strings.TrimSpace(a.committed) != ""
+	a.maybeLoadMore()
+	cols, cellW, cellH, tracks := a.posterGrid(c)
+	ui.Scroll(c).Grow(1).TrackScroll(&a.browseScroll).Children(func() {
 		ui.Column(c).Gap(18).Children(func() {
 			if a.screen == screenHome {
 				a.viewRails(c, th)
@@ -262,12 +274,16 @@ func (a *App) viewBrowse(c *ui.Context, th *ui.Theme) {
 				a.note(c, th, m.Reason, false)
 			}
 			if searching {
-				ui.Text(c, "搜索「"+strings.TrimSpace(a.query)+"」").FontSize(28).Bold()
-			} else if len(a.page.Items) > 0 && !a.listLoad {
+				label := fmt.Sprintf("搜索「%s」", strings.TrimSpace(a.committed))
+				if a.page.Total > 0 {
+					label += fmt.Sprintf("  ·  %d 条", a.page.Total)
+				}
+				ui.Text(c, label).FontSize(28).Bold()
+			} else if a.listAnchored && len(a.page.Items) > 0 && !a.listLoad {
 				a.viewHero(c, th, a.page.Items[0])
 			}
 			if len(a.cats) > 0 && !searching {
-				ui.ScrollBoth(c).MaxHeight(44).Children(func() {
+				ui.ScrollBoth(c).MaxHeight(48).Children(func() {
 					ui.Row(c).Gap(8).Children(func() {
 						for _, cat := range a.cats {
 							cat := cat
@@ -278,7 +294,7 @@ func (a *App) viewBrowse(c *ui.Context, th *ui.Theme) {
 				})
 			}
 			if a.listLoad && len(a.page.Items) == 0 {
-				a.skeletonRow(c, th)
+				a.skeletonRow(c, th, cols, cellW, cellH)
 				return
 			}
 			if a.listErr != "" {
@@ -289,100 +305,151 @@ func (a *App) viewBrowse(c *ui.Context, th *ui.Theme) {
 				a.emptyState(c, th, "没有结果", "换一个分类，或换个关键词再搜。")
 				return
 			}
-			ui.Grid(c).ColumnTracks(posterTracks()...).Gap(18).Children(func() {
+			ui.Grid(c).ColumnTracks(tracks...).Gap(14).Children(func() {
 				for i := range a.page.Items {
-					a.posterCard(c, th, a.page.Items[i])
+					a.posterCard(c, th, a.page.Items[i], cellW, cellH)
 				}
 			})
+			if a.appending {
+				a.loadingRow(c, th, "正在加载更多…")
+			}
 			a.viewPager(c, th)
 		})
 	})
 }
 
-// posterTracks keeps covers at a poster width. Flexible tracks were
-// stretching two titles into wide banners.
-func posterTracks() []ui.Track {
-	out := make([]ui.Track, 5)
-	for i := range out {
-		out[i] = ui.Fixed(176)
+// posterGrid sizes a 2:3 cover wall from the window. Fixed tracks keep a
+// short page from stretching two titles into banners.
+func (a *App) posterGrid(c *ui.Context) (cols int, cellW, cellH float32, tracks []ui.Track) {
+	winW, _ := c.Size()
+	inner := winW - 236 - 72
+	if a.screen == screenFav || a.screen == screenHistory {
+		inner = winW - 236 - 72
 	}
-	return out
+	if inner < 320 {
+		inner = winW - 48
+	}
+	if inner < 280 {
+		inner = 280
+	}
+	const gap float32 = 14
+	cols = int((inner + gap) / (156 + gap))
+	if cols < 2 {
+		cols = 2
+	}
+	if cols > 8 {
+		cols = 8
+	}
+	cellW = (inner - gap*float32(cols-1)) / float32(cols)
+	if cellW < 120 {
+		cellW = 120
+	}
+	cellH = cellW * 1.5
+	tracks = make([]ui.Track, cols)
+	for i := range tracks {
+		tracks[i] = ui.Fixed(cellW)
+	}
+	return cols, cellW, cellH, tracks
 }
 
 func (a *App) viewHero(c *ui.Context, th *ui.Theme, item model.Item) {
 	open := func() { a.openDetail(item) }
-	hero := ui.Box(c).FillWidth().Height(280).Radius(22).Clip().OnClick(open).Cursor(ui.CursorPointer)
+	_, winH := c.Size()
+	h := winH * 0.38
+	if h < 240 {
+		h = 240
+	}
+	if h > 380 {
+		h = 380
+	}
+	posterH := h - 48
+	hero := ui.Box(c).FillWidth().Height(h).Radius(22).Clip().OnClick(open).Cursor(ui.CursorPointer)
 	hero.Children(func() {
 		if bmp := a.poster(item.Pic); bmp != nil {
-			ui.Image(c, bmp).FillWidth().Height(280).Fit(ui.Cover)
+			ui.Image(c, bmp).FillWidth().Height(h + 40).Fit(ui.Cover).Blur(28)
 		} else {
 			ui.Box(c).Fill().Gradient(th.SurfaceHover, stageInk(a.light), 120)
 		}
-		ui.Column(c).Absolute().Left(0).Right(0).Bottom(0).Top(0).Justify(ui.End).Padding(28).Gap(8).
-			Gradient(ui.Transparent, ui.RGBA(0, 0, 0, 0.78), 180).
+		ui.Box(c).Absolute().Left(0).Right(0).Top(0).Bottom(0).Background(ui.RGBA(0, 0, 0, 0.28))
+		ui.Row(c).Absolute().Left(0).Right(0).Top(0).Bottom(0).Padding(24).Gap(22).AlignItems(ui.End).
+			Gradient(ui.Transparent, ui.RGBA(0, 0, 0, 0.72), 180).
 			Children(func() {
-				ui.Text(c, "继续看").FontSize(12).Bold().TextColor(ui.Hex("#e4c295"))
-				ui.Text(c, item.Title).FontSize(36).Bold().TextColor(ui.Hex("#fafafa"))
-				if item.Remarks != "" {
-					ui.Text(c, item.Remarks).FontSize(14).TextColor(ui.RGBA(255, 255, 255, 0.78))
-				}
-				ui.Row(c).Padding(6, 0, 0, 0).Children(func() {
-					if ui.PrimaryButton(c.Key("hero:"+item.ID), "查看详情").Clicked() {
-						open()
+				a.portrait(c, th, item.Pic, item.Title, posterH)
+				ui.Column(c).Grow(1).Gap(8).Padding(0, 0, 8, 0).Children(func() {
+					ui.Text(c, "精选").FontSize(12).Bold().TextColor(ui.Hex("#e4c295"))
+					ui.Text(c, item.Title).FontSize(34).Bold().TextColor(ui.Hex("#fafafa"))
+					if item.Remarks != "" {
+						ui.Text(c, item.Remarks).FontSize(14).TextColor(ui.RGBA(255, 255, 255, 0.82))
 					}
+					ui.Row(c).Padding(6, 0, 0, 0).Children(func() {
+						if ui.PrimaryButton(c.Key("hero:"+item.ID), "查看详情").Clicked() {
+							open()
+						}
+					})
 				})
 			})
 	})
 }
 
-func (a *App) posterCard(c *ui.Context, th *ui.Theme, item model.Item) {
+func (a *App) posterCard(c *ui.Context, th *ui.Theme, item model.Item, cellW, cellH float32) {
 	open := func() { a.openDetail(item) }
-	card := ui.Column(c.Key("card:" + item.ID)).Gap(8).OnClick(open).Cursor(ui.CursorPointer)
-	bg := ui.Transparent
+	card := ui.Column(c.Key("card:" + item.ID)).Width(cellW).Gap(8).OnClick(open).Cursor(ui.CursorPointer)
+	lift := float32(0)
 	shadow := ui.RGBA(0, 0, 0, 0)
 	if card.Hovered() {
-		bg = th.SurfaceHover
-		shadow = ui.RGBA(0, 0, 0, 0.35)
+		lift = -6
+		shadow = ui.RGBA(228, 194, 149, 0.28)
 	}
-	card.Padding(8).Radius(16).Background(bg).
-		Shadow(0, 16, 32, 0, shadow).
+	card.Translate(0, lift).
+		Shadow(0, 18, 36, 0, shadow).
 		Transition(ui.ElementTransition{Duration: 160 * time.Millisecond}).
 		Children(func() {
-			frame := ui.Column(c).FillWidth().Height(248).Radius(12).Clip().Background(th.Surface)
+			frame := ui.Column(c).Width(cellW).Height(cellH).Radius(12).Clip().Background(th.Surface)
 			frame.Children(func() {
-				if bmp := a.poster(item.Pic); bmp != nil {
-					ui.Image(c, bmp).FillWidth().Height(248).Fit(ui.Cover).OnClick(open)
-				} else {
-					ui.Column(c).Fill().Center().Gradient(th.Surface, th.SurfaceHover, 160).Children(func() {
-						ui.Text(c, mark(item.Title)).FontSize(28).Bold().TextColor(th.Accent)
-					})
-				}
+				a.cover(c, th, item.Pic, item.Title, cellW, cellH, open)
 				if item.Remarks != "" {
-					ui.Column(c).Absolute().Left(8).Bottom(8).Padding(2, 6).Radius(6).Background(ui.RGBA(0, 0, 0, 0.62)).Children(func() {
-						ui.Text(c, item.Remarks).FontSize(11).TextColor(ui.Hex("#fafafa"))
+					ui.Column(c).Absolute().Left(8).Top(8).Padding(3, 7).Radius(6).Background(ui.RGBA(0, 0, 0, 0.66)).Children(func() {
+						ui.Text(c, item.Remarks).FontSize(11).TextColor(ui.Hex("#fafafa")).SingleLine()
 					})
 				}
 			})
 			ui.Text(c, item.Title).FontSize(14).Bold().SingleLine().OnClick(open)
-			sub := item.Remarks
-			if sub == "" {
-				sub = item.Year
-			}
-			if sub == "" {
-				sub = " "
-			}
-			ui.Text(c, sub).FontSize(12).TextColor(th.TextMuted).SingleLine()
 		})
 }
 
-func (a *App) skeletonRow(c *ui.Context, th *ui.Theme) {
+func (a *App) cover(c *ui.Context, th *ui.Theme, pic, title string, w, h float32, click func()) {
+	pic = model.ResolveURL("", pic)
+	if bmp := a.poster(pic); bmp != nil {
+		img := ui.Image(c, bmp).Width(w).Height(h).Fit(ui.Cover)
+		if click != nil {
+			img.OnClick(click)
+		}
+		return
+	}
+	if pic != "" && !a.failed[pic] {
+		ui.Box(c).Width(w).Height(h).Background(th.SurfaceHover)
+		return
+	}
+	ui.Column(c).Width(w).Height(h).Center().Gradient(th.Surface, th.SurfaceHover, 160).Children(func() {
+		ui.Text(c, mark(title)).FontSize(28).Bold().TextColor(th.Accent)
+	})
+}
+
+func (a *App) skeletonRow(c *ui.Context, th *ui.Theme, cols int, cellW, cellH float32) {
+	if cols < 2 {
+		cols = 5
+	}
+	tracks := make([]ui.Track, cols)
+	for i := range tracks {
+		tracks[i] = ui.Fixed(cellW)
+	}
 	ui.Column(c).Gap(14).Children(func() {
-		ui.Box(c).FillWidth().Height(180).Radius(22).Background(th.Surface)
-		ui.Grid(c).ColumnTracks(posterTracks()...).Gap(18).Children(func() {
-			for i := 0; i < 5; i++ {
-				ui.Column(c).Width(160).Gap(8).Children(func() {
-					ui.Box(c).Width(160).Height(240).Radius(12).Background(th.Surface)
-					ui.Box(c).Width(96).Height(12).Radius(6).Background(th.SurfaceHover)
+		ui.Box(c).FillWidth().Height(220).Radius(22).Background(th.Surface)
+		ui.Grid(c).ColumnTracks(tracks...).Gap(14).Children(func() {
+			for i := 0; i < cols; i++ {
+				ui.Column(c).Width(cellW).Gap(8).Children(func() {
+					ui.Box(c).Width(cellW).Height(cellH).Radius(12).Background(th.Surface)
+					ui.Box(c).Width(cellW * 0.6).Height(12).Radius(6).Background(th.SurfaceHover)
 				})
 			}
 		})
@@ -413,7 +480,8 @@ func (a *App) viewPager(c *ui.Context, th *ui.Theme) {
 
 func (a *App) viewDetail(c *ui.Context, th *ui.Theme) {
 	if a.detailLoading && a.detail == nil {
-		a.skeletonRow(c, th)
+		_, cellW, cellH, _ := a.posterGrid(c)
+		a.skeletonRow(c, th, 5, cellW, cellH)
 	}
 	if a.detailErr != "" {
 		a.note(c, th, a.detailErr, true)
@@ -430,14 +498,22 @@ func (a *App) viewDetail(c *ui.Context, th *ui.Theme) {
 				if d != nil {
 					pic = d.Pic
 				}
-				a.portrait(c, th, pic, title, 200)
+				_, winH := c.Size()
+				ph := winH * 0.46
+				if ph < 220 {
+					ph = 220
+				}
+				if ph > 460 {
+					ph = 460
+				}
+				a.portrait(c, th, pic, title, ph)
 				ui.Column(c).Grow(1).Gap(10).Padding(8, 0, 0, 0).Children(func() {
 					ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
 						ui.Text(c, title).FontSize(34).Bold().Shrink(1)
-						if d != nil && len(d.Lines) > 0 && len(d.Lines[0].Episodes) > 0 {
+						if d != nil && a.linePick >= 0 && a.linePick < len(d.Lines) && len(d.Lines[a.linePick].Episodes) > 0 {
 							ep := d.Lines[a.linePick].Episodes[0]
 							ln := d.Lines[a.linePick].Name
-							a.iconBtn(c, "detail-play", iconPlay, "播放", func() { a.playEpisode(ln, ep) })
+							a.iconBtn(c, "detail-play", iconPlay, "播放", 48, 26, th.Text, func() { a.playEpisode(ln, ep) })
 						}
 						if d != nil {
 							on := a.lib != nil && a.lib.hasFav(mediaKey(a.siteKey, d.ID))
@@ -446,7 +522,7 @@ func (a *App) viewDetail(c *ui.Context, th *ui.Theme) {
 							if on {
 								tip = "取消收藏"
 							}
-							a.iconBtn(c, "fav-detail", heart, tip, func() {
+							a.iconBtn(c, "fav-detail", heart, tip, 48, 26, th.Text, func() {
 								if a.lib == nil {
 									return
 								}
@@ -495,7 +571,8 @@ func (a *App) viewDetail(c *ui.Context, th *ui.Theme) {
 				ui.Text(c, d.Lines[0].Name).FontSize(13).Bold().TextColor(th.TextMuted)
 			}
 			line := d.Lines[a.linePick]
-			ui.Row(c).Gap(8).Children(func() {
+			ui.Text(c, fmt.Sprintf("%d 集", len(line.Episodes))).FontSize(12).TextColor(th.TextMuted)
+			ui.Row(c).Gap(8).Wrap().Children(func() {
 				for _, ep := range line.Episodes {
 					ep := ep
 					label := ep.Name
@@ -513,23 +590,18 @@ func (a *App) viewDetail(c *ui.Context, th *ui.Theme) {
 }
 
 func (a *App) portrait(c *ui.Context, th *ui.Theme, pic, title string, h float32) {
-	w := h * 0.7
+	w := h * 2 / 3
 	frame := ui.Column(c).Width(w).Height(h).Radius(16).Clip().Background(th.Surface).
 		Shadow(0, 18, 40, 0, ui.RGBA(0, 0, 0, 0.35))
 	frame.Children(func() {
-		if bmp := a.poster(pic); bmp != nil {
-			ui.Image(c, bmp).Width(w).Height(h).Fit(ui.Cover)
-			return
-		}
-		ui.Column(c).Fill().Center().Gradient(th.SurfaceHover, th.Surface, 160).Children(func() {
-			ui.Text(c, mark(title)).FontSize(36).Bold().TextColor(th.Accent)
-		})
+		a.cover(c, th, pic, title, w, h, nil)
 	})
 }
 
 func (a *App) viewLive(c *ui.Context, th *ui.Theme) {
 	if a.liveLoading && len(a.channels) == 0 {
-		a.skeletonRow(c, th)
+		_, cellW, cellH, _ := a.posterGrid(c)
+		a.skeletonRow(c, th, 4, cellW, cellH)
 		return
 	}
 	if a.liveErr != "" {
@@ -538,7 +610,11 @@ func (a *App) viewLive(c *ui.Context, th *ui.Theme) {
 	}
 	chs := a.visibleChannels()
 	if len(chs) == 0 {
-		a.emptyState(c, th, "没有频道", "播放列表是空的，或过滤条件没有命中。")
+		if strings.TrimSpace(a.query) != "" && len(a.channels) > 0 {
+			a.emptyState(c, th, "没有频道符合「"+strings.TrimSpace(a.query)+"」", "清空搜索框可以看到全部频道。")
+			return
+		}
+		a.emptyState(c, th, "没有频道", "这份播放列表是空的。")
 		return
 	}
 	groups := liveGroups(chs)
@@ -552,13 +628,17 @@ func (a *App) viewLive(c *ui.Context, th *ui.Theme) {
 		}
 	}
 	ui.Row(c).Grow(1).Gap(12).AlignItems(ui.Stretch).Children(func() {
-		ui.Column(c).Width(148).Gap(6).Children(func() {
+		ui.Column(c).Width(160).Gap(6).Children(func() {
 			ui.Text(c, "分组").FontSize(12).Bold().TextColor(th.TextMuted)
-			a.choice(c, th, "grp-all", "全部", a.liveGroup == "", func() { a.liveGroup = "" })
-			for _, g := range groups {
-				g := g
-				a.choice(c, th, "grp-"+g, g, a.liveGroup == g, func() { a.liveGroup = g })
-			}
+			ui.Scroll(c).Grow(1).Children(func() {
+				ui.Column(c).Gap(6).Children(func() {
+					a.choice(c, th, "grp-all", "全部", a.liveGroup == "", func() { a.liveGroup = "" })
+					for _, g := range groups {
+						g := g
+						a.choice(c, th, "grp-"+g, g, a.liveGroup == g, func() { a.liveGroup = g })
+					}
+				})
+			})
 		})
 		ui.Column(c).Width(280).Children(func() {
 			ui.Text(c, fmt.Sprintf("%d 个频道", len(shown))).FontSize(12).TextColor(th.TextMuted)
@@ -574,12 +654,12 @@ func (a *App) viewLive(c *ui.Context, th *ui.Theme) {
 						ui.Text(c, mark(ch.Name)).FontSize(13).Bold().TextColor(th.Accent)
 					})
 					ui.Text(c, ch.Name).Grow(1).SingleLine()
-					a.iconBtn(c, "ch:"+ch.Group+"/"+ch.Name+"/"+ch.URL, iconPlay, "播放", func() { a.playChannel(ch) })
+					a.iconBtn(c, "ch:"+ch.Group+"/"+ch.Name+"/"+ch.URL, iconPlay, "播放", 40, 22, th.Text, func() { a.playChannel(ch) })
 				})
 			}).Grow(1)
 		})
 		ui.Column(c).Grow(1).Children(func() {
-			if a.player != nil && a.fromLive {
+			if a.player != nil && a.fromLive || a.playLoading && a.fromLive {
 				a.paintStage(c, th, true)
 			} else {
 				a.emptyState(c, th, "选一个频道", "分组在左，频道在中，画面在这里播放。")
@@ -719,9 +799,7 @@ func (a *App) viewRails(c *ui.Context, th *ui.Theme) {
 					}).Cursor(ui.CursorPointer)
 					card.Children(func() {
 						ui.Column(c).Width(148).Height(96).Radius(10).Clip().Background(th.Surface).Children(func() {
-							if bmp := a.poster(w.Pic); bmp != nil {
-								ui.Image(c, bmp).Width(148).Height(96).Fit(ui.Cover)
-							}
+							a.cover(c, th, w.Pic, w.Title, 148, 96, nil)
 						})
 						ui.Text(c, w.Title).FontSize(13).Bold().SingleLine()
 						frac := float32(0)
@@ -744,9 +822,7 @@ func (a *App) viewRails(c *ui.Context, th *ui.Theme) {
 				f := f
 				ui.Column(c.Key("f-" + f.Key)).Width(120).Gap(4).Children(func() {
 					ui.Column(c).Width(120).Height(168).Radius(10).Clip().Background(th.Surface).Children(func() {
-						if bmp := a.poster(f.Pic); bmp != nil {
-							ui.Image(c, bmp).Width(120).Height(168).Fit(ui.Cover)
-						}
+						a.cover(c, th, f.Pic, f.Title, 120, 168, nil)
 					})
 					ui.Text(c, f.Title).FontSize(12).SingleLine()
 				})
@@ -773,9 +849,7 @@ func (a *App) viewHistory(c *ui.Context, th *ui.Theme) {
 				}).Cursor(ui.CursorPointer)
 				row.Children(func() {
 					ui.Column(c).Width(72).Height(96).Radius(8).Clip().Background(th.SurfaceHover).Children(func() {
-						if bmp := a.poster(w.Pic); bmp != nil {
-							ui.Image(c, bmp).Width(72).Height(96).Fit(ui.Cover)
-						}
+						a.cover(c, th, w.Pic, w.Title, 72, 96, nil)
 					})
 					ui.Column(c).Grow(1).Gap(4).Children(func() {
 						ui.Text(c, w.Title).Bold().SingleLine()
@@ -793,7 +867,7 @@ func (a *App) viewHistory(c *ui.Context, th *ui.Theme) {
 						})
 						ui.Text(c, clock(w.Position)+" / "+clock(w.Duration)).FontSize(11).TextColor(th.TextMuted)
 					})
-					a.iconBtn(c, "resume-"+w.Key, iconPlay, "继续播放", func() {
+					a.iconBtn(c, "resume-"+w.Key, iconPlay, "继续播放", 42, 24, th.Text, func() {
 						a.resumeAt = w.Position
 						a.startPlay(w.Title, w.URL, nil, false)
 					})
@@ -809,9 +883,10 @@ func (a *App) viewFavs(c *ui.Context, th *ui.Theme) {
 		a.emptyState(c, th, "还没有收藏", "在详情页点心形图标，片子会留在这里。")
 		return
 	}
-	ui.Grid(c).ColumnTracks(posterTracks()...).Gap(18).Children(func() {
+	_, cellW, cellH, tracks := a.posterGrid(c)
+	ui.Grid(c).ColumnTracks(tracks...).Gap(14).Children(func() {
 		for _, f := range items {
-			a.posterCard(c, th, model.Item{ID: f.VodID, Title: f.Title, Pic: f.Pic, Remarks: f.Remarks, Year: f.Year})
+			a.posterCard(c, th, model.Item{ID: f.VodID, Title: f.Title, Pic: f.Pic, Remarks: f.Remarks, Year: f.Year}, cellW, cellH)
 		}
 	})
 }

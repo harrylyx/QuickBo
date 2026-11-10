@@ -4,6 +4,7 @@ package model
 import (
 	"fmt"
 	"html"
+	"net/url"
 	"strings"
 )
 
@@ -73,6 +74,56 @@ type Playable struct {
 	URL        string
 	Headers    map[string]string
 	NeedsParse bool
+}
+
+// ResolveURL turns a CMS media address into an absolute URL. Protocol-relative
+// pictures (//cdn/a.jpg) become https, and paths are resolved against base.
+func ResolveURL(base, raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	if strings.HasPrefix(raw, "//") {
+		return "https:" + raw
+	}
+	if strings.Contains(raw, "://") || strings.TrimSpace(base) == "" {
+		return raw
+	}
+	bu, err := url.Parse(base)
+	if err != nil {
+		return raw
+	}
+	ru, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	return bu.ResolveReference(ru).String()
+}
+
+// PreferredLine picks the first play line that already looks like a media
+// file. CMS feeds often put a share page on line 1 and the m3u8 on line 2.
+func PreferredLine(lines []Line) int {
+	for i, ln := range lines {
+		for _, ep := range ln.Episodes {
+			if mediaSuffix(ep.URL) {
+				return i
+			}
+		}
+	}
+	return 0
+}
+
+func mediaSuffix(raw string) bool {
+	low := strings.ToLower(strings.TrimSpace(raw))
+	if i := strings.IndexAny(low, "?#"); i >= 0 {
+		low = low[:i]
+	}
+	for _, ext := range []string{".m3u8", ".m3u", ".mp4", ".m4v", ".mkv", ".flv", ".ts", ".mpd"} {
+		if strings.HasSuffix(low, ext) {
+			return true
+		}
+	}
+	return false
 }
 
 // ParsePlay splits the CMS vod_play_from / vod_play_url pair.

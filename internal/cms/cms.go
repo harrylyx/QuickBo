@@ -73,6 +73,7 @@ func (c *Client) Detail(ctx context.Context, id string) (model.Detail, error) {
 	if err != nil {
 		return model.Detail{}, err
 	}
+	c.absolutize(&parsed)
 	if len(parsed.Page.Items) == 0 && len(parsed.Details) == 0 {
 		return model.Detail{}, fmt.Errorf("详情为空")
 	}
@@ -98,10 +99,27 @@ func (c *Client) page(ctx context.Context, q url.Values, page int) (model.Page, 
 	if err != nil {
 		return model.Page{}, err
 	}
+	c.absolutize(&parsed)
 	if parsed.Page.Page == 0 {
 		parsed.Page.Page = page
 	}
 	return parsed.Page, nil
+}
+
+func (c *Client) absolutize(res *pageResult) {
+	for i := range res.Page.Items {
+		res.Page.Items[i].Pic = model.ResolveURL(c.base, res.Page.Items[i].Pic)
+	}
+	for i := range res.Details {
+		d := &res.Details[i]
+		d.Pic = model.ResolveURL(c.base, d.Pic)
+		for li := range d.Lines {
+			for ei := range d.Lines[li].Episodes {
+				ep := &d.Lines[li].Episodes[ei]
+				ep.URL = model.ResolveURL(c.base, ep.URL)
+			}
+		}
+	}
 }
 
 func (c *Client) get(ctx context.Context, q url.Values) ([]byte, error) {
