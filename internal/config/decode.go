@@ -84,12 +84,16 @@ func tryBase64(b []byte) ([]byte, bool) {
 	if len(out) == 0 {
 		return nil, false
 	}
-	// Accept another wrapper, or text that looks like JSON / gzip.
+	// JSON, gzip, or another "prefix**base64" wrapper. A `{` buried in
+	// decoded noise is not enough: hex ciphertext is valid base64 alphabet
+	// and would otherwise be peeled into garbage.
 	if out[0] == '{' || out[0] == '[' || (len(out) > 2 && out[0] == 0x1f && out[1] == 0x8b) {
 		return out, true
 	}
-	if mostlyText(out) && (bytes.Contains(out, []byte("{")) || bytes.Contains(out, []byte("**"))) {
-		return out, true
+	if mostlyText(out) {
+		if i := bytes.Index(out, []byte("**")); i >= 0 && i < 64 {
+			return out, true
+		}
 	}
 	return nil, false
 }

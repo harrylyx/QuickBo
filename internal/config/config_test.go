@@ -67,6 +67,14 @@ func TestParseBase64AndGzip(t *testing.T) {
 	}
 }
 
+func TestHexCipherIsNotBase64(t *testing.T) {
+	raw := []byte("242377796378642324fc526118f0e7ec8fcc62f7db20fa08c23c4a3cdd091cfe")
+	_, err := Parse(raw)
+	if err == nil || !strings.Contains(err.Error(), "无法识别") {
+		t.Fatal(err)
+	}
+}
+
 func TestParseArrayAndIndex(t *testing.T) {
 	raw := []byte(`[
 		{"sites":[{"key":"a","name":"A","type":1,"api":"https://a.example/vod"}]},
@@ -112,6 +120,27 @@ func TestClassifyTable(t *testing.T) {
 		if got.Kind != tc.kind || got.Level != tc.lv {
 			t.Errorf("%+v -> %+v, want %s/%v", tc.site, got, tc.kind, tc.lv)
 		}
+	}
+}
+
+func TestParseStringNumbers(t *testing.T) {
+	raw := []byte(`{"sites":[
+		{"key":"a","name":"甲","type":"3","searchable":"1","quickSearch":true,"playerType":"2","api":"csp_XBPQ","ext":"./a.json"},
+		"nope",
+		{"key":"b","name":"乙","type":1,"api":"https://example.com/api.php/provide/vod/"}
+	]}`)
+	cfg, err := Parse(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Sites) != 2 {
+		t.Fatalf("sites = %+v", cfg.Sites)
+	}
+	if cfg.Sites[0].Type != TypeSpider || cfg.Sites[0].PlayerType != 2 || cfg.Sites[0].Searchable != 1 || cfg.Sites[0].QuickSearch != 1 {
+		t.Fatalf("%+v", cfg.Sites[0])
+	}
+	if Classify(cfg.Sites[0]).Kind != KindXBPQ {
+		t.Fatalf("%+v", Classify(cfg.Sites[0]))
 	}
 }
 

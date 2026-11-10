@@ -6,12 +6,15 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
 	"unicode/utf8"
 
+	"golang.org/x/net/idna"
 	"golang.org/x/text/encoding/simplifiedchinese"
 )
 
@@ -42,6 +45,10 @@ func Get(ctx context.Context, hc *http.Client, raw string, headers map[string]st
 	}
 	if hc == nil {
 		hc = New()
+	}
+	raw, err := requestURL(raw)
+	if err != nil {
+		return nil, "", err
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, raw, nil)
 	if err != nil {
@@ -83,6 +90,10 @@ func PostForm(ctx context.Context, hc *http.Client, raw, form string, headers ma
 	}
 	if limit <= 0 {
 		limit = 8 << 20
+	}
+	raw, err := requestURL(raw)
+	if err != nil {
+		return nil, err
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, raw, strings.NewReader(form))
 	if err != nil {
@@ -176,4 +187,27 @@ func isBinary(b []byte, contentType string) bool {
 		return true
 	}
 	return false
+}
+
+// requestURL turns an international host into punycode and escapes a
+// non-ASCII path. net/http rejects those URLs as written in subscriptions.
+func requestURL(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "", err
+	}
+	if u.Host == "" {
+		return u.String(), nil
+	}
+	host, err := idna.Lookup.ToASCII(u.Hostname())
+	if err != nil {
+		return "", err
+	}
+	if port := u.Port(); port != "" {
+		u.Host = net.JoinHostPort(host, port)
+	} else {
+		u.Host = host
+	}
+	return u.String(), nil
 }

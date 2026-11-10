@@ -9,6 +9,7 @@ package config
 import (
 	"bytes"
 	"encoding/json"
+	"strconv"
 	"strings"
 )
 
@@ -40,17 +41,59 @@ func (l Level) String() string {
 	}
 }
 
+// FlexInt reads a JSON number, a numeric string, or a bool. Subscriptions
+// often write "2" where the field is specified as a number. A value that
+// is not a number becomes 0 instead of failing the whole document.
+type FlexInt int
+
+func (n *FlexInt) UnmarshalJSON(data []byte) error {
+	data = bytes.TrimSpace(data)
+	if len(data) == 0 || string(data) == "null" {
+		return nil
+	}
+	if data[0] == '"' {
+		var s string
+		if json.Unmarshal(data, &s) != nil {
+			return nil
+		}
+		s = strings.TrimSpace(s)
+		if s == "" {
+			return nil
+		}
+		if i, err := strconv.Atoi(s); err == nil {
+			*n = FlexInt(i)
+			return nil
+		}
+		if f, err := strconv.ParseFloat(s, 64); err == nil {
+			*n = FlexInt(int(f))
+		}
+		return nil
+	}
+	if data[0] == 't' || data[0] == 'f' {
+		var b bool
+		if json.Unmarshal(data, &b) == nil && b {
+			*n = 1
+		}
+		return nil
+	}
+	var f float64
+	if json.Unmarshal(data, &f) == nil {
+		*n = FlexInt(int(f))
+	}
+	return nil
+}
+
 // Site is one on-demand source.
 type Site struct {
-	Key         string `json:"key"`
-	Name        string `json:"name"`
-	Type        int    `json:"type"`
-	API         string `json:"api"`
-	Searchable  int    `json:"searchable"`
-	QuickSearch int    `json:"quickSearch"`
-	PlayerType  int    `json:"playerType"`
-	Jar         string `json:"jar"`
-	Ext         any    `json:"ext"`
+	Key         string  `json:"key"`
+	Name        string  `json:"name"`
+	Type        FlexInt `json:"type"`
+	API         string  `json:"api"`
+	Searchable  FlexInt `json:"searchable"`
+	QuickSearch FlexInt `json:"quickSearch"`
+	PlayerType  FlexInt `json:"playerType"`
+	Jar         string  `json:"jar"`
+	Ext         any     `json:"ext"`
 }
 
 // ExtString returns ext when it is a string. Objects are JSON-encoded so
@@ -73,10 +116,10 @@ func (s Site) ExtString() string {
 // Live is a live-TV playlist entry. Channels are filled when the playlist
 // is fetched, not when the subscription is parsed.
 type Live struct {
-	Name string `json:"name"`
-	Type int    `json:"type"`
-	URL  string `json:"url"`
-	EPG  string `json:"epg"`
+	Name string  `json:"name"`
+	Type FlexInt `json:"type"`
+	URL  string  `json:"url"`
+	EPG  string  `json:"epg"`
 }
 
 // LiveList skips malformed live entries instead of failing the whole file.
@@ -109,10 +152,10 @@ func (l *LiveList) UnmarshalJSON(data []byte) error {
 // ParseItem is an online parse entry. Type 1 is a JSON parser; other
 // types are recorded and not executed.
 type ParseItem struct {
-	Name string `json:"name"`
-	Type int    `json:"type"`
-	URL  string `json:"url"`
-	Ext  any    `json:"ext"`
+	Name string  `json:"name"`
+	Type FlexInt `json:"type"`
+	URL  string  `json:"url"`
+	Ext  any     `json:"ext"`
 }
 
 // NamedURL is one entry in a subscription index (urls / storeHouse).
@@ -155,7 +198,7 @@ func (n *NamedURL) UnmarshalJSON(data []byte) error {
 type Config struct {
 	Spider     string      `json:"spider"`
 	Wallpaper  string      `json:"wallpaper"`
-	Sites      []Site      `json:"sites"`
+	Sites      SiteList    `json:"sites"`
 	Lives      LiveList    `json:"lives"`
 	Parses     []ParseItem `json:"parses"`
 	URLs       []NamedURL  `json:"urls"`
@@ -163,6 +206,34 @@ type Config struct {
 	// SourceURL is the address this document was loaded from. Relative
 	// api/ext/live paths are resolved against it.
 	SourceURL string `json:"sourceUrl,omitempty"`
+}
+
+// SiteList skips entries that are not site objects, so one broken item
+// does not reject the subscription.
+type SiteList []Site
+
+func (l *SiteList) UnmarshalJSON(data []byte) error {
+	data = bytes.TrimSpace(data)
+	if len(data) == 0 || string(data) == "null" || data[0] != '[' {
+		return nil
+	}
+	var raw []json.RawMessage
+	if json.Unmarshal(data, &raw) != nil {
+		return nil
+	}
+	out := make([]Site, 0, len(raw))
+	for _, item := range raw {
+		var site Site
+		if json.Unmarshal(item, &site) != nil {
+			continue
+		}
+		if strings.TrimSpace(site.Key) == "" && strings.TrimSpace(site.Name) == "" && strings.TrimSpace(site.API) == "" {
+			continue
+		}
+		out = append(out, site)
+	}
+	*l = out
+	return nil
 }
 
 // IndexEntries returns warehouse links when the document is an index

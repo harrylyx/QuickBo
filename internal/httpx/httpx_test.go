@@ -2,6 +2,7 @@ package httpx
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 )
 
@@ -14,6 +15,23 @@ func TestToUTF8LeavesPNG(t *testing.T) {
 	got = ToUTF8(png, "")
 	if !bytes.Equal(got, png) {
 		t.Fatalf("png magic changed: %x", got)
+	}
+}
+
+func TestRequestURLPunycode(t *testing.T) {
+	got, err := requestURL("http://www.饭太硬.cc/tv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "xn--") || !strings.HasSuffix(got, "/tv") {
+		t.Fatalf("%s", got)
+	}
+	plain, err := requestURL("https://example.com/a b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(plain, "example.com") {
+		t.Fatalf("%s", plain)
 	}
 }
 
