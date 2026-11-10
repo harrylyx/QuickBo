@@ -9,16 +9,21 @@ import (
 	"time"
 
 	"github.com/harrylyx/QuickBo/internal/config"
+	"github.com/harrylyx/QuickBo/internal/model"
 	"github.com/harrylyx/QuickBo/internal/source"
 )
 
 const (
-	indexFetchParallel = 4
-	indexProbeParallel = 6
-	indexFetchTimeout  = 18 * time.Second
-	indexProbeTimeout  = 12 * time.Second
+	// Fetch and probe run wide on purpose. A dead host holds its worker
+	// until the timeout, so the cap stays finite, but 6-wide left most of
+	// the wait in the queue.
+	indexFetchParallel = 16
+	indexProbeParallel = 48
+	indexFetchTimeout  = 15 * time.Second
+	indexProbeTimeout  = 8 * time.Second
 	indexMaxDepth      = 2
 	indexProbeCats     = 3
+	homeRailLimit      = 12
 )
 
 func (a *App) beginLoad() (context.Context, int) {
@@ -46,11 +51,11 @@ func (a *App) fetch(ctx context.Context, ref string) (*config.Config, error) {
 	return config.Load(ctx, ref)
 }
 
-func (a *App) yields(ctx context.Context, s source.Source) bool {
+func (a *App) sample(ctx context.Context, s source.Source) (model.Page, bool) {
 	if a.probeSite != nil {
 		return a.probeSite(ctx, s)
 	}
-	return sourceYields(ctx, s)
+	return sourceSample(ctx, s)
 }
 
 // expandIndex loads every address in a warehouse, then keeps only the
@@ -158,17 +163,35 @@ func (a *App) keepWorking(ctx context.Context, full *source.Catalog) {
 	total := len(sites) + len(lives)
 	a.loading = true
 	a.loadNote = fmt.Sprintf("正在检查 %d 个源", total)
+	a.screen = screenHome
+	a.sideSel = "home"
+	a.lastSide = "home"
+	a.siteKey = ""
+	a.home = nil
+	skipped := map[string]bool{}
+	for id := range a.hidden {
+		skipped[id] = true
+	}
 	go func() {
 		okSite := make([]bool, len(sites))
+		pages := make([]model.Page, len(sites))
 		okLive := make([]bool, len(lives))
 		var mu sync.Mutex
 		var checked atomic.Int32
 		publish := func() {
 			mu.Lock()
-			siteSnap := make([]source.Source, 0, len(sites))
+			type kept struct {
+				src   source.Source
+				items []model.Item
+			}
+			got := make([]kept, 0, len(sites))
 			for i, s := range sites {
 				if okSite[i] {
-					siteSnap = append(siteSnap, s)
+					items := pages[i].Items
+					if len(items) > homeRailLimit {
+						items = append([]model.Item(nil), items[:homeRailLimit]...)
+					}
+					got = append(got, kept{src: s, items: items})
 				}
 			}
 			liveSnap := make([]*source.LiveEntry, 0, len(lives))
@@ -178,27 +201,42 @@ func (a *App) keepWorking(ctx context.Context, full *source.Catalog) {
 				}
 			}
 			n := int(checked.Load())
-			usable := len(siteSnap) + len(liveSnap)
 			mu.Unlock()
 			a.post(func() {
 				if ctx.Err() != nil {
 					return
 				}
-				a.catalog.Sites = siteSnap
-				a.catalog.Lives = liveSnap
-				a.loadNote = fmt.Sprintf("正在检查源 %d/%d，可用 %d", n, total, usable)
-				if a.siteKey == "" && len(siteSnap) > 0 {
-					a.selectSite(siteSnap[0].Meta().Key)
+				siteSnap := make([]source.Source, 0, len(got))
+				lanes := make([]homeLane, 0, len(got))
+				for _, g := range got {
+					if a.hidden[sourceHideID(g.src)] {
+						continue
+					}
+					m := g.src.Meta()
+					lanes = append(lanes, homeLane{Key: m.Key, Name: m.Name, Items: g.items})
+					siteSnap = append(siteSnap, g.src)
+				}
+				shownLive := liveSnap[:0]
+				for _, lv := range liveSnap {
+					if !a.hidden[liveHideID(lv.URL)] {
+						shownLive = append(shownLive, lv)
+					}
+				}
+				if a.sideSel == "" || a.sideSel == "home" {
 					a.screen = screenHome
 					a.sideSel = "home"
 					a.lastSide = "home"
 				}
+				a.catalog.Sites = siteSnap
+				a.catalog.Lives = shownLive
+				a.home = lanes
+				a.loadNote = fmt.Sprintf("正在检查源 %d/%d，可用 %d", n, total, len(siteSnap)+len(shownLive))
 			})
 		}
 		sem := make(chan struct{}, indexProbeParallel)
 		var wg sync.WaitGroup
 		for i, s := range sites {
-			if s.Meta().Level == config.LevelNo {
+			if s.Meta().Level == config.LevelNo || skipped[sourceHideID(s)] {
 				checked.Add(1)
 				continue
 			}
@@ -212,18 +250,23 @@ func (a *App) keepWorking(ctx context.Context, full *source.Catalog) {
 					return
 				}
 				cctx, cancel := context.WithTimeout(ctx, indexProbeTimeout)
-				ok := a.yields(cctx, s)
+				page, ok := a.sample(cctx, s)
 				cancel()
 				checked.Add(1)
 				if ok {
 					mu.Lock()
 					okSite[i] = true
+					pages[i] = page
 					mu.Unlock()
 				}
 				publish()
 			}(i, s)
 		}
 		for i, lv := range lives {
+			if skipped[liveHideID(lv.URL)] {
+				checked.Add(1)
+				continue
+			}
 			wg.Add(1)
 			go func(i int, lv *source.LiveEntry) {
 				defer wg.Done()
@@ -321,29 +364,46 @@ func mergeConfigs(cfgs []*config.Config) *config.Config {
 	return dst
 }
 
-// sourceYields reports whether a source can list at least one title.
-// The first few categories are tried, because "推荐" is often empty
-// while a later category is not.
-func sourceYields(ctx context.Context, s source.Source) bool {
+// sourceSample returns the first page that actually lists titles.
+// The first few categories are requested together, because "推荐" is
+// often empty while a later category is not.
+func sourceSample(ctx context.Context, s source.Source) (model.Page, bool) {
 	if s == nil || s.Meta().Level == config.LevelNo {
-		return false
+		return model.Page{}, false
 	}
 	cats, _ := s.Categories(ctx)
-	if len(cats) == 0 {
-		return false
+	if len(cats) == 0 || ctx.Err() != nil {
+		return model.Page{}, false
 	}
 	n := len(cats)
 	if n > indexProbeCats {
 		n = indexProbeCats
 	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var (
+		mu    sync.Mutex
+		hit   model.Page
+		found bool
+		wg    sync.WaitGroup
+	)
 	for i := 0; i < n; i++ {
-		if ctx.Err() != nil {
-			return false
-		}
-		page, err := s.List(ctx, cats[i].ID, 1)
-		if err == nil && len(page.Items) > 0 {
-			return true
-		}
+		wg.Add(1)
+		go func(id string) {
+			defer wg.Done()
+			page, err := s.List(ctx, id, 1)
+			if err != nil || len(page.Items) == 0 {
+				return
+			}
+			mu.Lock()
+			if !found {
+				found = true
+				hit = page
+				cancel()
+			}
+			mu.Unlock()
+		}(cats[i].ID)
 	}
-	return false
+	wg.Wait()
+	return hit, found
 }

@@ -40,6 +40,39 @@ func TestUnsupportedJarRenders(t *testing.T) {
 	}
 }
 
+func TestHomeShowsEverySource(t *testing.T) {
+	a := New()
+	a.settingsPath = ""
+	a.catalog = &source.Catalog{Sites: []source.Source{cmsFake{}, otherFake{}}}
+	a.screen = screenHome
+	a.sideSel = "home"
+	a.lastSide = "home"
+	a.home = []homeLane{
+		{Key: "c", Name: "演示源", Items: []model.Item{{ID: "1", Title: "示例影片"}}},
+		{Key: "d", Name: "另一源", Items: []model.Item{{ID: "2", Title: "另一部"}}},
+	}
+	tt := ui.NewTester(a.View, 1200, 800)
+	if !tt.HasText("示例影片") || !tt.HasText("另一部") || !tt.HasText("全部片源") {
+		t.Fatalf("texts %q", tt.Texts())
+	}
+	if err := tt.RightClick("演示源"); err != nil {
+		t.Fatal(err)
+	}
+	menu := tt.Menu()
+	if len(menu) != 1 || menu[0] != "删除" {
+		t.Fatalf("menu %v", menu)
+	}
+	if err := tt.ChooseMenuItem("删除"); err != nil {
+		t.Fatal(err)
+	}
+	if len(a.catalog.Sites) != 1 || a.catalog.Sites[0].Meta().Name != "另一源" {
+		t.Fatalf("sites left: %d", len(a.catalog.Sites))
+	}
+	if len(a.home) != 1 || a.home[0].Name != "另一源" {
+		t.Fatalf("rails %+v", a.home)
+	}
+}
+
 func TestBrowseShowsPosterCard(t *testing.T) {
 	a := New()
 	a.catalog = &source.Catalog{Sites: []source.Source{cmsFake{}}}
@@ -90,6 +123,23 @@ func (cmsFake) Search(context.Context, string, int) (model.Page, error) {
 }
 func (cmsFake) Detail(context.Context, string) (model.Detail, error) { return model.Detail{}, nil }
 func (cmsFake) Resolve(context.Context, string, model.Episode) (model.Playable, error) {
+	return model.Playable{}, nil
+}
+
+type otherFake struct{}
+
+func (otherFake) Meta() source.Meta {
+	return source.Meta{Key: "d", Name: "另一源", API: "https://example.invalid/other", Kind: config.KindCMSJSON, Level: config.LevelYes}
+}
+func (otherFake) Categories(context.Context) ([]model.Category, error) { return nil, nil }
+func (otherFake) List(context.Context, string, int) (model.Page, error) {
+	return model.Page{}, nil
+}
+func (otherFake) Search(context.Context, string, int) (model.Page, error) {
+	return model.Page{}, nil
+}
+func (otherFake) Detail(context.Context, string) (model.Detail, error) { return model.Detail{}, nil }
+func (otherFake) Resolve(context.Context, string, model.Episode) (model.Playable, error) {
 	return model.Playable{}, nil
 }
 

@@ -36,7 +36,7 @@ func TestMergeConfigsDropsDupesAndKeepsOrder(t *testing.T) {
 	}
 }
 
-func TestSourceYieldsTriesLaterCategories(t *testing.T) {
+func TestSourceSampleTriesLaterCategories(t *testing.T) {
 	later := &yieldSrc{
 		cats: []model.Category{{ID: "rec"}, {ID: "movie"}},
 		pages: []model.Page{
@@ -44,7 +44,8 @@ func TestSourceYieldsTriesLaterCategories(t *testing.T) {
 			{Items: []model.Item{{Title: "有"}}},
 		},
 	}
-	if !sourceYields(context.Background(), later) {
+	page, ok := sourceSample(context.Background(), later)
+	if !ok || len(page.Items) == 0 || page.Items[0].Title != "有" {
 		t.Fatal("second category has a title, source should be kept")
 	}
 	tooLate := &yieldSrc{
@@ -56,11 +57,11 @@ func TestSourceYieldsTriesLaterCategories(t *testing.T) {
 			{Items: []model.Item{{Title: "太靠后"}}},
 		},
 	}
-	if sourceYields(context.Background(), tooLate) {
+	if _, ok := sourceSample(context.Background(), tooLate); ok {
 		t.Fatal("only the fourth category listed anything; the probe stops at three")
 	}
 	broken := &yieldSrc{err: errors.New("eof")}
-	if sourceYields(context.Background(), broken) {
+	if _, ok := sourceSample(context.Background(), broken); ok {
 		t.Fatal("a source that errors with no categories is a failure")
 	}
 	dead := &yieldSrc{
@@ -68,7 +69,7 @@ func TestSourceYieldsTriesLaterCategories(t *testing.T) {
 		cats:  []model.Category{{ID: "a"}},
 		pages: []model.Page{{Items: []model.Item{{Title: "x"}}}},
 	}
-	if sourceYields(context.Background(), dead) {
+	if _, ok := sourceSample(context.Background(), dead); ok {
 		t.Fatal("unsupported sources are not probed")
 	}
 }
@@ -122,8 +123,11 @@ func TestLoadIndexHidesEmptyAndFailed(t *testing.T) {
 				return nil, errors.New(ref)
 			}
 		},
-		probeSite: func(_ context.Context, s source.Source) bool {
-			return s.Meta().Name == "可用"
+		probeSite: func(_ context.Context, s source.Source) (model.Page, bool) {
+			if s.Meta().Name != "可用" {
+				return model.Page{}, false
+			}
+			return model.Page{Items: []model.Item{{ID: "1", Title: "有结果"}}}, true
 		},
 	}
 	done := make(chan struct{})
@@ -144,8 +148,11 @@ func TestLoadIndexHidesEmptyAndFailed(t *testing.T) {
 		}
 		t.Fatalf("sidebar sources %v", names)
 	}
-	if a.screen != screenHome || a.sideSel != "home" {
-		t.Fatalf("screen %s side %s", a.screen, a.sideSel)
+	if a.screen != screenHome || a.sideSel != "home" || a.siteKey != "" {
+		t.Fatalf("screen %s side %s site %s", a.screen, a.sideSel, a.siteKey)
+	}
+	if len(a.home) != 1 || a.home[0].Name != "可用" || a.home[0].Items[0].Title != "有结果" {
+		t.Fatalf("home %+v", a.home)
 	}
 }
 
@@ -166,13 +173,16 @@ func (s yieldSrc) Categories(context.Context) ([]model.Category, error) {
 	return s.cats, nil
 }
 
-func (s *yieldSrc) List(context.Context, string, int) (model.Page, error) {
-	i := s.n
-	s.n++
-	if i >= len(s.pages) {
-		return model.Page{}, s.err
+func (s *yieldSrc) List(_ context.Context, cat string, _ int) (model.Page, error) {
+	for i, c := range s.cats {
+		if c.ID == cat {
+			if i < len(s.pages) {
+				return s.pages[i], s.err
+			}
+			return model.Page{}, s.err
+		}
 	}
-	return s.pages[i], s.err
+	return model.Page{}, s.err
 }
 
 func (s yieldSrc) Search(context.Context, string, int) (model.Page, error) {

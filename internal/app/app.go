@@ -64,7 +64,7 @@ type App struct {
 	// fetchConfig overrides subscription loading in tests.
 	fetchConfig func(context.Context, string) (*config.Config, error)
 	// probeSite overrides the empty-list check in tests.
-	probeSite func(context.Context, source.Source) bool
+	probeSite func(context.Context, source.Source) (model.Page, bool)
 	afterLoad func()
 	postMu    sync.Mutex
 
@@ -126,9 +126,13 @@ type App struct {
 	selected int
 	chState  ui.ListState
 
-	posters  map[string]*ui.Bitmap
-	fetching map[string]bool
-	failed   map[string]bool
+	posters       map[string]*ui.Bitmap
+	fetching      map[string]bool
+	failed        map[string]bool
+	hidden        map[string]bool
+	home          []homeLane
+	homeHits      []homeLane
+	homeSearching bool
 
 	gen          int
 	settingsPath string
@@ -139,6 +143,7 @@ type savedSettings struct {
 	PreferExternal bool     `json:"preferExternal"`
 	Light          bool     `json:"light,omitempty"`
 	Volume         *float64 `json:"volume,omitempty"`
+	Hidden         []string `json:"hidden,omitempty"`
 }
 
 // New returns an empty shell. No subscription is loaded until the user
@@ -155,6 +160,7 @@ func New() *App {
 		posters:       map[string]*ui.Bitmap{},
 		fetching:      map[string]bool{},
 		failed:        map[string]bool{},
+		hidden:        map[string]bool{},
 		settingsPath:  settingsPath(),
 	}
 	a.grid.Selected = &a.selected
@@ -228,6 +234,12 @@ func (a *App) LoadSaved() {
 	}
 	a.preferExternal = s.PreferExternal
 	a.light = s.Light
+	a.hidden = map[string]bool{}
+	for _, id := range s.Hidden {
+		if id != "" {
+			a.hidden[id] = true
+		}
+	}
 	if s.Volume != nil {
 		a.volume = *s.Volume
 		a.savedVolume = a.volume
@@ -259,22 +271,9 @@ func (a *App) apply(cfg *config.Config, ref string) {
 		a.doneLoad()
 		return
 	}
-	a.loading = false
-	a.doneLoad()
-	for _, s := range a.catalog.Sites {
-		if s.Meta().Level != config.LevelNo {
-			a.selectSite(s.Meta().Key)
-			a.screen = screenHome
-			a.sideSel = "home"
-			a.lastSide = "home"
-			return
-		}
-	}
-	if len(a.catalog.Sites) > 0 {
-		a.selectSite(a.catalog.Sites[0].Meta().Key)
-		return
-	}
-	a.selectLive(0)
+	full := a.catalog
+	a.catalog = &source.Catalog{Parses: full.Parses, Index: full.Index}
+	a.keepWorking(a.loadCtxOrBackground(), full)
 }
 
 func (a *App) onSide() {
@@ -286,6 +285,8 @@ func (a *App) onSide() {
 	case a.sideSel == "home":
 		a.query = ""
 		a.committed = ""
+		a.homeHits = nil
+		a.homeSearching = false
 		a.screen = screenHome
 		a.closePlayer()
 	case a.sideSel == "history":
@@ -709,6 +710,10 @@ func (a *App) back() {
 		}
 		a.screen = screenBrowse
 	case screenDetail:
+		if a.sideSel == "home" || a.sideSel == "" {
+			a.screen = screenHome
+			return
+		}
 		a.screen = screenBrowse
 	}
 }
@@ -854,7 +859,10 @@ func (a *App) saveSettings() {
 		return
 	}
 	vol := a.volume
-	s := savedSettings{Config: a.cfgRef, PreferExternal: a.preferExternal, Light: a.light, Volume: &vol}
+	s := savedSettings{
+		Config: a.cfgRef, PreferExternal: a.preferExternal, Light: a.light, Volume: &vol,
+		Hidden: hiddenIDs(a.hidden),
+	}
 	b, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return

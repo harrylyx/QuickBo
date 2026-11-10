@@ -37,7 +37,11 @@ func (a *App) View(c *ui.Context) {
 				a.viewTop(c, th)
 				ui.Box(c).FillWidth().Height(1).Background(th.Border)
 				ui.Column(c).Grow(1).Children(func() {
-					if a.screen == screenHome || a.screen == screenBrowse {
+					if a.screen == screenHome {
+						a.viewHome(c, th)
+						return
+					}
+					if a.screen == screenBrowse {
 						a.viewBrowse(c, th)
 						return
 					}
@@ -169,19 +173,36 @@ func (a *App) viewSidebar(c *ui.Context, th *ui.Theme) {
 				ui.SidebarSection(c, "点播", nil, func() {
 					for _, s := range a.catalog.Sites {
 						m := s.Meta()
-						item := ui.SidebarItem(c, "site:"+m.Key, iconScreen, m.Name)
-						if m.Level == config.LevelNo {
-							item.Children(func() {
-								ui.Text(c, "不可用").FontSize(12).TextColor(th.TextMuted)
+						key := m.Key
+						item := ui.SidebarItem(c, "site:"+key, iconScreen, m.Name)
+						item.ContextMenu(func(menu *ui.Menu) {
+							if menu.Item("删除").Chosen() {
+								a.dropSite(key)
+							}
+						})
+						item.Children(func() {
+							ui.Text(c.Key("drop-site:"+key), "移除").FontSize(12).TextColor(th.TextMuted).Cursor(ui.CursorPointer).OnClick(func() {
+								a.dropSite(key)
 							})
-						}
+						})
 					}
 				})
 			}
 			if a.catalog != nil && len(a.catalog.Lives) > 0 {
 				ui.SidebarSection(c, "直播", nil, func() {
 					for i, lv := range a.catalog.Lives {
-						ui.SidebarItem(c, fmt.Sprintf("live:%d", i), iconSignal, lv.Name)
+						lv := lv
+						item := ui.SidebarItem(c, fmt.Sprintf("live:%d", i), iconSignal, lv.Name)
+						item.ContextMenu(func(menu *ui.Menu) {
+							if menu.Item("删除").Chosen() {
+								a.dropLive(lv.URL)
+							}
+						})
+						item.Children(func() {
+							ui.Text(c.Key("drop-live:"+lv.URL), "移除").FontSize(12).TextColor(th.TextMuted).Cursor(ui.CursorPointer).OnClick(func() {
+								a.dropLive(lv.URL)
+							})
+						})
 					}
 				})
 			}
@@ -206,6 +227,9 @@ func (a *App) viewTop(c *ui.Context, th *ui.Theme) {
 		ui.Column(c).Grow(1)
 		if a.screen == screenBrowse || a.screen == screenHome || a.screen == screenLive || a.screen == screenDetail {
 			ph := "搜索片名，回车"
+			if a.screen == screenHome {
+				ph = "搜索全部片源，回车"
+			}
 			if a.screen == screenLive {
 				ph = "过滤频道"
 			}
@@ -215,18 +239,24 @@ func (a *App) viewTop(c *ui.Context, th *ui.Theme) {
 				if field.Submitted() || cleared {
 					a.committed = strings.TrimSpace(a.query)
 					a.pageNum = 1
-					if a.committed == "" {
-						a.screen = screenHome
-						a.sideSel = "home"
-						a.lastSide = "home"
+					if a.screen == screenHome {
+						if a.committed == "" {
+							a.homeHits = nil
+							a.homeSearching = false
+						} else {
+							a.searchHome()
+						}
 					} else {
-						a.screen = screenBrowse
-						if a.siteKey != "" {
+						if a.committed == "" {
+							a.screen = screenHome
+							a.sideSel = "home"
+							a.lastSide = "home"
+						} else if a.siteKey != "" {
 							a.sideSel = "site:" + a.siteKey
 							a.lastSide = a.sideSel
 						}
+						a.loadList()
 					}
-					a.loadList()
 				}
 			}
 		}
@@ -279,6 +309,8 @@ func (a *App) crumb() string {
 
 func (a *App) headline() string {
 	switch a.screen {
+	case screenHome:
+		return "全部片源"
 	case screenHistory:
 		return "观看历史"
 	case screenFav:
@@ -297,15 +329,9 @@ func (a *App) viewBrowse(c *ui.Context, th *ui.Theme) {
 	searching := strings.TrimSpace(a.committed) != ""
 	a.maybeLoadMore()
 	cols, cellW, cellH, tracks := a.posterGrid(c)
-	showHero := a.screen == screenHome && !searching && a.listAnchored && a.catID == "" && len(a.page.Items) > 0 && !a.listLoad
 	ui.Scroll(c).Grow(1).TrackScroll(&a.browseScroll).Children(func() {
 		ui.Column(c).Gap(20).Children(func() {
-			if showHero {
-				a.viewHero(c, th, a.page.Items[0])
-			} else if a.listLoad && len(a.page.Items) == 0 && a.screen == screenHome && !searching {
-				ui.Box(c).FillWidth().Height(320).Background(th.Surface)
-			}
-			ui.Column(c).Padding(0, pagePad).Gap(18).Children(func() {
+			ui.Column(c).Padding(8, pagePad, 0, pagePad).Gap(18).Children(func() {
 				if m, ok := a.currentMeta(); ok && m.Level == config.LevelPartial && m.Reason != "" {
 					a.note(c, th, m.Reason, false)
 				}
@@ -319,9 +345,6 @@ func (a *App) viewBrowse(c *ui.Context, th *ui.Theme) {
 				if len(a.cats) > 0 && !searching {
 					a.catTabs(c, th)
 				}
-				if !searching {
-					a.viewContinue(c, th)
-				}
 				if a.listLoad && len(a.page.Items) == 0 {
 					a.skeletonRow(c, th, cols, cellW, cellH)
 					return
@@ -334,13 +357,9 @@ func (a *App) viewBrowse(c *ui.Context, th *ui.Theme) {
 					a.emptyState(c, th, "没有结果", "换一个分类，或换个关键词再搜。")
 					return
 				}
-				start := 0
-				if showHero && n > 1 {
-					start = 1
-				}
 				ui.Grid(c).ColumnTracks(tracks...).Gap(16).Children(func() {
-					for i := start; i < n; i++ {
-						a.posterCard(c, th, a.page.Items[i], cellW, cellH)
+					for i := 0; i < n; i++ {
+						a.posterCard(c, th, a.siteKey, a.page.Items[i], cellW, cellH)
 					}
 				})
 				if a.appending {
@@ -381,40 +400,6 @@ func (a *App) posterGrid(c *ui.Context) (cols int, cellW, cellH float32, tracks 
 		tracks[i] = ui.Fixed(cellW)
 	}
 	return cols, cellW, cellH, tracks
-}
-
-func (a *App) viewHero(c *ui.Context, th *ui.Theme, item model.Item) {
-	open := func() { a.openDetail(item) }
-	_, winH := c.Size()
-	h := winH * 0.42
-	if h < 280 {
-		h = 280
-	}
-	if h > 420 {
-		h = 420
-	}
-	hero := ui.Box(c).FillWidth().Height(h).Clip()
-	hero.Children(func() {
-		if bmp := a.poster(item.Pic); bmp != nil {
-			ui.Image(c, bmp).FillWidth().Height(h).Fit(ui.Cover)
-		} else {
-			ui.Box(c).Fill().Gradient(th.Surface, stageInk(a.light), 160)
-		}
-		ui.Box(c).Absolute().Left(0).Right(0).Top(0).Bottom(0).Background(ui.RGBA(0, 0, 0, 0.28))
-		ui.Box(c).Absolute().Left(0).Right(0).Bottom(0).Height(h*0.78).
-			Gradient(ui.Transparent, ui.RGBA(0, 0, 0, 0.92), 180)
-		ui.Column(c).Absolute().Left(0).Bottom(0).Width(560).Padding(0, 0, 28, pagePad).Gap(8).Children(func() {
-			ui.Text(c, item.Title).FontSize(36).Bold().TextColor(ui.Hex("#FAFAFA")).Wrap()
-			if item.Remarks != "" {
-				ui.Text(c, item.Remarks).FontSize(15).TextColor(ui.RGBA(255, 255, 255, 0.78)).Wrap()
-			}
-			ui.Row(c).Padding(8, 0, 0, 0).Children(func() {
-				if ui.PrimaryButton(c.Key("hero:"+item.ID), "查看详情").Clicked() {
-					open()
-				}
-			})
-		})
-	})
 }
 
 func (a *App) catTabs(c *ui.Context, th *ui.Theme) {
@@ -488,9 +473,14 @@ func (a *App) viewContinue(c *ui.Context, th *ui.Theme) {
 	})
 }
 
-func (a *App) posterCard(c *ui.Context, th *ui.Theme, item model.Item, cellW, cellH float32) {
-	open := func() { a.openDetail(item) }
-	card := ui.Column(c.Key("card:" + item.ID)).Width(cellW).Gap(8).OnClick(open).Cursor(ui.CursorPointer)
+func (a *App) posterCard(c *ui.Context, th *ui.Theme, siteKey string, item model.Item, cellW, cellH float32) {
+	open := func() {
+		if siteKey != "" {
+			a.siteKey = siteKey
+		}
+		a.openDetail(item)
+	}
+	card := ui.Column(c.Key("card:" + siteKey + ":" + item.ID)).Width(cellW).Gap(8).OnClick(open).Cursor(ui.CursorPointer)
 	hot := card.Hovered()
 	card.Children(func() {
 		frame := ui.Column(c).Width(cellW).Height(cellH).Radius(8).Clip().Background(th.Surface)
@@ -999,7 +989,7 @@ func (a *App) viewFavs(c *ui.Context, th *ui.Theme) {
 	ui.Scroll(c).Grow(1).Children(func() {
 		ui.Grid(c).ColumnTracks(tracks...).Gap(16).Children(func() {
 			for _, f := range items {
-				a.posterCard(c, th, model.Item{ID: f.VodID, Title: f.Title, Pic: f.Pic, Remarks: f.Remarks, Year: f.Year}, cellW, cellH)
+				a.posterCard(c, th, f.SiteKey, model.Item{ID: f.VodID, Title: f.Title, Pic: f.Pic, Remarks: f.Remarks, Year: f.Year}, cellW, cellH)
 			}
 		})
 	})
