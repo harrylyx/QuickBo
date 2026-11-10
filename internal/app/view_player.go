@@ -308,7 +308,7 @@ func (a *App) playerChrome(c *ui.Context, th *ui.Theme) {
 			ui.Row(c).Gap(6).Children(func() {
 				for i, ln := range a.detail.Lines {
 					i, name := i, ln.Name
-					a.choice(c, th, "route-"+name, name, name == a.playLine, func() {
+					a.choice(c, th, "route-"+name, lineLabel(name, i), name == a.playLine, func() {
 						a.linePick = i
 						if len(ln.Episodes) > 0 {
 							a.playEpisode(name, ln.Episodes[0])
@@ -345,10 +345,11 @@ func (a *App) overlayTitle() (string, string) {
 		title = a.detail.Title
 		episode = currentEpisodeName(a)
 		if a.playLine != "" {
+			label := lineLabel(a.playLine, a.linePick)
 			if episode != "" {
-				episode = a.playLine + "  ·  " + episode
+				episode = label + "  ·  " + episode
 			} else {
-				episode = a.playLine
+				episode = label
 			}
 		}
 	}
@@ -475,9 +476,9 @@ func (a *App) iconBtn(c *ui.Context, key string, glyph *ui.SVG, tip string, box,
 	b := ui.Column(c.Key(key)).Size(box, box).Radius(box / 2).Center().OnClick(click).Cursor(ui.CursorPointer).Tooltip(tip).Label(tip)
 	switch {
 	case b.Pressed():
-		b.Background(ui.RGBA(255, 255, 255, 0.30))
+		b.Background(ui.RGBA(255, 255, 255, 0.30)).Translate(0, 1).Scale(0.985, 0.985)
 	case b.Hovered():
-		b.Background(ui.RGBA(255, 255, 255, 0.16))
+		b.Background(ui.RGBA(255, 255, 255, 0.16)).Translate(0, -1)
 	}
 	b.Children(func() {
 		ui.Icon(c, glyph).Size(glyphPx, glyphPx).TextColor(fg)
