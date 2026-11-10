@@ -236,15 +236,15 @@ func (a *App) thinProgress(c *ui.Context, th *ui.Theme) {
 	if frac > 1 {
 		frac = 1
 	}
-	ui.Box(c).Absolute().Left(0).Right(0).Bottom(0).Height(3).Background(ui.RGBA(255, 255, 255, 0.18)).Children(func() {
-		ui.Box(c).Height(3).WidthPercent(float32(frac) * 100).Background(th.Accent)
+	ui.Box(c).Absolute().Left(0).Right(0).Bottom(0).Height(2).Background(ui.RGBA(255, 255, 255, 0.18)).Children(func() {
+		ui.Box(c).Height(2).WidthPercent(float32(frac) * 100).Background(th.Accent)
 	})
 }
 
 func (a *App) playerChrome(c *ui.Context, th *ui.Theme) {
 	white := ui.Hex("#fafafa")
 	title, episode := a.overlayTitle()
-	ui.Column(c).Absolute().Left(0).Right(0).Top(0).Padding(18, 22).Gap(2).
+	ui.Column(c).Absolute().Left(0).Right(0).Top(0).Padding(20, 28).Gap(2).
 		Gradient(ui.RGBA(0, 0, 0, 0.78), ui.Transparent, 180).Children(func() {
 		ui.Row(c).Gap(12).AlignItems(ui.Center).Children(func() {
 			a.iconBtn(c, "back", iconBack, "返回", 44, 26, white, func() { a.back() })
@@ -256,7 +256,7 @@ func (a *App) playerChrome(c *ui.Context, th *ui.Theme) {
 			})
 		})
 	})
-	ui.Column(c).Absolute().Left(0).Right(0).Bottom(0).Padding(18, 22, 16, 22).Gap(10).
+	ui.Column(c).Absolute().Left(0).Right(0).Bottom(0).Padding(20, 28, 18, 28).Gap(12).
 		Gradient(ui.Transparent, ui.RGBA(0, 0, 0, 0.88), 180).Children(func() {
 		a.seekBar(c, th)
 		ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
@@ -384,7 +384,7 @@ func (a *App) seekBar(c *ui.Context, th *ui.Theme) {
 			}
 		}
 		hit.Children(func() {
-			ui.Box(c).Absolute().Left(0).Right(0).Top(11).Height(6).Radius(3).Background(ui.RGBA(255, 255, 255, 0.22))
+			ui.Box(c).Absolute().Left(0).Right(0).Top(12).Height(4).Radius(2).Background(ui.RGBA(255, 255, 255, 0.22))
 			// mygo's player reports Buffering, not a buffered time range.
 			// While it is filling, the track ahead of the playhead is drawn
 			// lighter so the wait is visible; it is not a measured cache.
@@ -393,9 +393,9 @@ func (a *App) seekBar(c *ui.Context, th *ui.Theme) {
 				if ahead > w {
 					ahead = w
 				}
-				ui.Box(c).Absolute().Left(0).Top(11).Height(6).Width(ahead).Radius(3).Background(ui.RGBA(255, 255, 255, 0.38))
+				ui.Box(c).Absolute().Left(0).Top(12).Height(4).Width(ahead).Radius(2).Background(ui.RGBA(255, 255, 255, 0.38))
 			}
-			ui.Box(c).Absolute().Left(0).Top(11).Height(6).Width(w * float32(frac)).Radius(3).Background(th.Accent)
+			ui.Box(c).Absolute().Left(0).Top(12).Height(4).Width(w * float32(frac)).Radius(2).Background(th.Accent)
 			px, _, hover := hit.PointerPosition()
 			if hover && dur > 0 && w > 1 {
 				at := float64(px) / float64(w) * dur
@@ -407,8 +407,8 @@ func (a *App) seekBar(c *ui.Context, th *ui.Theme) {
 				if left > w-tipW {
 					left = w - tipW
 				}
-				ui.Column(c).Absolute().Left(left).Top(0).Width(tipW).Height(16).Radius(4).Background(ui.RGBA(0, 0, 0, 0.82)).Center().Children(func() {
-					ui.Text(c, clock(at)).FontSize(11).TextColor(ui.Hex("#fafafa"))
+				ui.Column(c).Absolute().Left(left).Top(0).Width(tipW).Height(18).Radius(4).Background(ui.RGBA(0, 0, 0, 0.82)).Center().Children(func() {
+					ui.Text(c, clock(at)).FontSize(12).TextColor(ui.Hex("#FAFAFA"))
 				})
 			}
 		})
@@ -438,11 +438,11 @@ func (a *App) seekBar(c *ui.Context, th *ui.Theme) {
 }
 
 func (a *App) episodeDrawer(c *ui.Context, th *ui.Theme) {
-	ui.Column(c).Absolute().Top(0).Right(0).Bottom(0).Width(280).Padding(16).Gap(8).
-		Background(ui.RGBA(12, 12, 14, 0.92)).Children(func() {
+	ui.Column(c).Absolute().Top(0).Right(0).Bottom(0).Width(300).Padding(20, 18).Gap(12).
+		Background(ui.Hex("#0E0E0E")).Children(func() {
 		ui.Row(c).AlignItems(ui.Center).Children(func() {
-			ui.Text(c, "选集").Bold().TextColor(ui.Hex("#fafafa")).Grow(1)
-			a.iconBtn(c, "close-eps", iconBack, "关闭", 40, 22, ui.Hex("#fafafa"), func() { a.showDrawer = false })
+			ui.Text(c, "选集").FontSize(16).Bold().TextColor(ui.Hex("#FAFAFA")).Grow(1)
+			a.iconBtn(c, "close-eps", iconBack, "关闭", 44, 22, ui.Hex("#FAFAFA"), func() { a.showDrawer = false })
 		})
 		if a.detail == nil {
 			ui.Text(c, "没有剧集列表").TextColor(th.TextMuted)
@@ -476,11 +476,11 @@ func (a *App) iconBtn(c *ui.Context, key string, glyph *ui.SVG, tip string, box,
 	b := ui.Column(c.Key(key)).Size(box, box).Radius(box / 2).Center().OnClick(click).Cursor(ui.CursorPointer).Tooltip(tip).Label(tip)
 	switch {
 	case b.Pressed():
-		b.Background(ui.RGBA(255, 255, 255, 0.30)).Translate(0, 1).Scale(0.985, 0.985)
+		b.Background(ui.RGBA(255, 255, 255, 0.22))
 	case b.Hovered():
-		b.Background(ui.RGBA(255, 255, 255, 0.16)).Translate(0, -1)
+		b.Background(ui.RGBA(255, 255, 255, 0.12))
 	}
-	b.Children(func() {
+	b.Transition(ui.ElementTransition{Duration: 150 * time.Millisecond}).Children(func() {
 		ui.Icon(c, glyph).Size(glyphPx, glyphPx).TextColor(fg)
 	})
 }
