@@ -5,15 +5,15 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
-	"github.com/harrylyx/mybox/internal/config"
-	"github.com/harrylyx/mybox/internal/model"
-	"github.com/harrylyx/mybox/internal/source"
+	"github.com/harrylyx/QuickBo/internal/config"
+	"github.com/harrylyx/QuickBo/internal/model"
+	"github.com/harrylyx/QuickBo/internal/source"
 )
 
 func TestWelcomeMentionsEmptyShellAndJar(t *testing.T) {
 	a := New()
 	tt := ui.NewTester(a.View, 960, 640)
-	if !tt.HasText("mybox") || !tt.HasText("不内置任何片源") {
+	if !tt.HasText("QuickBo") || !tt.HasText("不内置任何片源") {
 		t.Fatalf("texts %q", tt.Texts())
 	}
 	if !tt.HasText("不执行 jar") {

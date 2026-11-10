@@ -1,4 +1,4 @@
-// Command mybox is a desktop TVBox-style client with a native GPU UI.
+// Command quickbo is a desktop TVBox-style client with a native GPU UI.
 package main
 
 import (
@@ -7,7 +7,7 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
-	"github.com/harrylyx/mybox/internal/app"
+	"github.com/harrylyx/QuickBo/internal/app"
 )
 
 func main() {
@@ -19,7 +19,7 @@ func main() {
 	application := app.New()
 	mygo.App.WhenReady(func() {
 		win := mygo.NewWindow(mygo.WindowOptions{
-			Title:     "mybox",
+			Title:     "QuickBo",
 			Width:     1180,
 			Height:    760,
 			MinWidth:  880,

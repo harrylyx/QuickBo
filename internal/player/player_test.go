@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/harrylyx/mybox/internal/config"
+	"github.com/harrylyx/QuickBo/internal/config"
 )
 
 func TestIsDirect(t *testing.T) {

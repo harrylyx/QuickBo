@@ -12,11 +12,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/harrylyx/mybox/internal/httpx"
-	"github.com/harrylyx/mybox/internal/model"
+	"github.com/harrylyx/QuickBo/internal/httpx"
+	"github.com/harrylyx/QuickBo/internal/model"
 )
 
-// Rule is the subset of an XBPQ rule mybox understands.
+// Rule is the subset of an XBPQ rule QuickBo understands.
 type Rule struct {
 	HomeURL        string            `json:"主页url"`
 	Classes        string            `json:"分类"`

@@ -15,12 +15,12 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
-	"github.com/harrylyx/mybox/internal/config"
-	"github.com/harrylyx/mybox/internal/httpx"
-	"github.com/harrylyx/mybox/internal/live"
-	"github.com/harrylyx/mybox/internal/model"
-	"github.com/harrylyx/mybox/internal/player"
-	"github.com/harrylyx/mybox/internal/source"
+	"github.com/harrylyx/QuickBo/internal/config"
+	"github.com/harrylyx/QuickBo/internal/httpx"
+	"github.com/harrylyx/QuickBo/internal/live"
+	"github.com/harrylyx/QuickBo/internal/model"
+	"github.com/harrylyx/QuickBo/internal/player"
+	"github.com/harrylyx/QuickBo/internal/source"
 
 	_ "image/gif"
 	_ "image/jpeg"
@@ -672,7 +672,7 @@ func settingsPath() string {
 	if err != nil {
 		dir = os.TempDir()
 	}
-	return filepath.Join(dir, "mybox", "settings.json")
+	return filepath.Join(dir, "quickbo", "settings.json")
 }
 
 func mergeHeaders(a, b map[string]string) map[string]string {

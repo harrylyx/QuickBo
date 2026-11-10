@@ -13,8 +13,8 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/video"
-	"github.com/harrylyx/mybox/internal/config"
-	"github.com/harrylyx/mybox/internal/httpx"
+	"github.com/harrylyx/QuickBo/internal/config"
+	"github.com/harrylyx/QuickBo/internal/httpx"
 )
 
 // OpenNative opens a URL with the system media framework. The player
