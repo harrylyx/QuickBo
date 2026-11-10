@@ -165,7 +165,7 @@ func (a *App) searchHome() {
 				m := s.Meta()
 				mu.Lock()
 				for _, it := range page.Items {
-					found = append(found, ballot{SiteKey: m.Key, SiteName: m.Name, Bucket: "hot", Item: it})
+					found = append(found, ballot{SiteKey: m.Key, SiteName: m.Name, Bucket: hotLaneID, Item: it})
 				}
 				mu.Unlock()
 			}(s)

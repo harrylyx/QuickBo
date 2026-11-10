@@ -24,7 +24,8 @@ func TestCacheRoundTripAndInvalidation(t *testing.T) {
 	a.writeCache(&cacheData{
 		Ref: ref,
 		Sites: []cacheSite{{
-			Key: "s1", Name: "甲",
+			Key: "s1", Name: "甲", Voter: "site:s1",
+			Hot:  []model.Item{{ID: "1", Title: "热播片"}},
 			Cats: []cacheCat{{Name: "电影片", Items: []model.Item{{Title: "无间道"}}}},
 		}},
 		Lives: []string{"https://example.com/live.m3u"},
@@ -36,7 +37,11 @@ func TestCacheRoundTripAndInvalidation(t *testing.T) {
 	if !got.hasSite("s1") || !got.hasLive("https://example.com/live.m3u") {
 		t.Fatal("cached site or live list missing")
 	}
-	if balls := got.ballots(nil); len(balls) != 1 || balls[0].Cat != "电影片" || balls[0].Bucket != "" {
+	if len(got.Sites[0].Hot) != 1 || got.Sites[0].Hot[0].Title != "热播片" {
+		t.Fatalf("hot facts missing: %+v", got.Sites[0])
+	}
+	if balls := got.ballots(nil); len(balls) != 2 || balls[0].Bucket != hotLaneID || balls[0].Cat != "" ||
+		balls[1].Bucket != "" || balls[1].Cat != "电影片" {
 		t.Fatalf("ballots %+v", balls)
 	}
 	if a.readCache("https://other.example/tvbox.json") != nil {
@@ -50,16 +55,18 @@ func TestCacheRoundTripAndInvalidation(t *testing.T) {
 	if err := json.Unmarshal(b, &raw); err != nil {
 		t.Fatal(err)
 	}
-	raw["version"] = cacheVersion + 1
-	b, err = json.Marshal(raw)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(a.cachePath(), b, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if a.readCache(ref) != nil {
-		t.Fatal("a version mismatch must invalidate the cache")
+	for _, version := range []int{cacheVersion + 1, 1} {
+		raw["version"] = version
+		b, err = json.Marshal(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(a.cachePath(), b, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if a.readCache(ref) != nil {
+			t.Fatalf("cache version %d must be invalidated", version)
+		}
 	}
 	a.clearCache()
 	if a.readCache(ref) != nil {
@@ -191,5 +198,26 @@ func TestApplyRestoresFromCacheWithoutCollecting(t *testing.T) {
 	}
 	if len(a.home) != 1 || a.home[0].Name != "电影" {
 		t.Fatalf("home %v", laneNames(a.home))
+	}
+}
+
+func TestApplyRestoresHotLaneFromCache(t *testing.T) {
+	a := cacheTestApp(t)
+	ref := "https://example.com/tvbox.json"
+	a.writeCache(&cacheData{Ref: ref, Sites: []cacheSite{{
+		Key: "site1", Name: "甲", Voter: "site:site1",
+		Hot:  []model.Item{{ID: "1", Title: "热播片", Remarks: "HD", Year: "2024"}},
+		Cats: []cacheCat{{Name: "电影片", Items: []model.Item{{Title: "无间道"}}}},
+	}}})
+	cfg := &config.Config{Sites: []config.Site{{
+		Key: "site1", Name: "甲", Type: config.TypeJSON, API: "https://example.com/api.php",
+	}}}
+	a.apply(cfg, ref)
+	if len(a.home) != 2 || a.home[0].Key != hotLaneID || a.home[0].Name != hotLaneName ||
+		a.home[0].Items[0].Title != "热播片" || a.home[1].Name != "电影" {
+		t.Fatalf("home %v", laneNames(a.home))
+	}
+	if len(a.lookup[normTitle("热播片")]) != 1 {
+		t.Fatalf("hot title is not reachable: %+v", a.lookup)
 	}
 }

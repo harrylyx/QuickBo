@@ -11,7 +11,7 @@ import (
 	"github.com/harrylyx/QuickBo/internal/source"
 )
 
-const cacheVersion = 1
+const cacheVersion = 2
 
 // cacheData is the on-disk result of a collection pass. It stores raw
 // category -> item facts rather than homepage rows, so a later rule edit can
@@ -26,10 +26,11 @@ type cacheData struct {
 }
 
 type cacheSite struct {
-	Key   string     `json:"key"`
-	Name  string     `json:"name"`
-	Voter string     `json:"voter,omitempty"`
-	Cats  []cacheCat `json:"cats"`
+	Key   string       `json:"key"`
+	Name  string       `json:"name"`
+	Voter string       `json:"voter,omitempty"`
+	Hot   []model.Item `json:"hot,omitempty"`
+	Cats  []cacheCat   `json:"cats"`
 }
 
 type cacheCat struct {
@@ -111,14 +112,23 @@ func (c *cacheData) hasLive(raw string) bool {
 	return false
 }
 
-// ballots turns cached facts into votes. Bucket is deliberately empty:
-// expandBallots applies whatever homepage rules are current to Cat.
-// A non-nil allowed set drops sources the user removed since caching.
+// ballots turns cached facts into votes. Hot candidates keep a fixed bucket;
+// category ballots leave Bucket empty so expandBallots can apply the current
+// rules to Cat. A non-nil allowed set drops sources removed since caching.
 func (c *cacheData) ballots(allowed map[string]bool) []ballot {
 	var out []ballot
 	for _, s := range c.Sites {
 		if allowed != nil && !allowed[s.Key] {
 			continue
+		}
+		for _, it := range s.Hot {
+			if !usableTitle(it.Title) {
+				continue
+			}
+			out = append(out, ballot{
+				SiteKey: s.Key, SiteName: s.Name, Voter: s.Voter,
+				Bucket: hotLaneID, Item: it,
+			})
 		}
 		for _, cat := range s.Cats {
 			for _, it := range cat.Items {

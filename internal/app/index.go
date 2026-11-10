@@ -22,8 +22,7 @@ const (
 	indexFetchTimeout  = 15 * time.Second
 	indexProbeTimeout  = 8 * time.Second
 	indexMaxDepth      = 2
-	indexProbeCats     = 3
-	homeRailLimit      = 12
+	indexProbeCats     = 5
 	cacheCatLimit      = 16
 	cacheItemLimit     = 16
 )
@@ -259,31 +258,41 @@ func (a *App) keepWorking(ctx context.Context, full *source.Catalog) {
 					mu.Unlock()
 					publish()
 					m := s.Meta()
-					var got []ballot
-					if a.probeSite != nil {
-						for _, it := range page.Items {
-							got = append(got, ballot{SiteKey: m.Key, SiteName: m.Name, Bucket: "hot", Item: it})
-						}
-					} else {
+					voter := voterFor(m)
+					hot := hotCandidates(page.Items)
+					var cats []cacheCat
+					if a.probeSite == nil {
 						bctx, bcancel := context.WithTimeout(ctx, 20*time.Second)
-						cats := collectSource(bctx, s)
+						cats = collectSource(bctx, s)
 						bcancel()
-						if len(cats) > 0 {
-							voter := voterFor(m)
-							cacheMu.Lock()
-							cacheSites = append(cacheSites, cacheSite{Key: m.Key, Name: m.Name, Voter: voter, Cats: cats})
-							cacheMu.Unlock()
-							for _, cat := range cats {
-								for _, it := range cat.Items {
-									if !usableTitle(it.Title) {
-										continue
-									}
-									got = append(got, ballot{
-										SiteKey: m.Key, SiteName: m.Name, Voter: voter,
-										Cat: cat.Name, Item: it,
-									})
-								}
+						if len(hot) == 0 && len(cats) > 0 {
+							hot = hotCandidates(cats[0].Items)
+						}
+					}
+					if len(hot) > 0 || len(cats) > 0 {
+						cacheMu.Lock()
+						cacheSites = append(cacheSites, cacheSite{
+							Key: m.Key, Name: m.Name, Voter: voter,
+							Hot: hot, Cats: cats,
+						})
+						cacheMu.Unlock()
+					}
+					var got []ballot
+					for _, it := range hot {
+						got = append(got, ballot{
+							SiteKey: m.Key, SiteName: m.Name, Voter: voter,
+							Bucket: hotLaneID, Item: it,
+						})
+					}
+					for _, cat := range cats {
+						for _, it := range cat.Items {
+							if !usableTitle(it.Title) {
+								continue
 							}
+							got = append(got, ballot{
+								SiteKey: m.Key, SiteName: m.Name, Voter: voter,
+								Cat: cat.Name, Item: it,
+							})
 						}
 					}
 					if len(got) > 0 {
@@ -411,9 +420,32 @@ func mergeConfigs(cfgs []*config.Config) *config.Config {
 	return dst
 }
 
-// sourceSample returns the first page that actually lists titles.
-// The first few categories are requested together, because "推荐" is
-// often empty while a later category is not.
+// hotCandidates keeps a bounded, deduplicated set of usable titles from a
+// source's first non-empty page. It is the raw fact behind the hot lane.
+func hotCandidates(items []model.Item) []model.Item {
+	out := make([]model.Item, 0, cacheItemLimit)
+	seen := map[string]bool{}
+	for _, it := range items {
+		if !usableTitle(it.Title) {
+			continue
+		}
+		id := normTitle(it.Title)
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, it)
+		if len(out) >= cacheItemLimit {
+			break
+		}
+	}
+	return out
+}
+
+// sourceSample returns the earliest non-empty page among the first
+// indexProbeCats categories. They are requested together because "推荐" is
+// often empty while a later category is not. Keeping the lowest category index
+// makes the homepage hot candidates deterministic.
 func sourceSample(ctx context.Context, s source.Source) (model.Page, bool) {
 	if s == nil || s.Meta().Level == config.LevelNo {
 		return model.Page{}, false
@@ -426,33 +458,37 @@ func sourceSample(ctx context.Context, s source.Source) (model.Page, bool) {
 	if n > indexProbeCats {
 		n = indexProbeCats
 	}
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	var (
-		mu    sync.Mutex
-		hit   model.Page
-		found bool
-		wg    sync.WaitGroup
-	)
+	type sampleHit struct {
+		index int
+		page  model.Page
+	}
+	results := make(chan sampleHit, n)
+	var wg sync.WaitGroup
 	for i := 0; i < n; i++ {
 		wg.Add(1)
-		go func(id string) {
+		go func(i int, id string) {
 			defer wg.Done()
+			if ctx.Err() != nil {
+				return
+			}
 			page, err := s.List(ctx, id, 1)
 			if err != nil || len(page.Items) == 0 {
 				return
 			}
-			mu.Lock()
-			if !found {
-				found = true
-				hit = page
-				cancel()
-			}
-			mu.Unlock()
-		}(cats[i].ID)
+			results <- sampleHit{index: i, page: page}
+		}(i, cats[i].ID)
 	}
 	wg.Wait()
-	return hit, found
+	close(results)
+	var best sampleHit
+	found := false
+	for r := range results {
+		if !found || r.index < best.index {
+			best = r
+			found = true
+		}
+	}
+	return best.page, found
 }
 
 // collectSource records every usable category of a source, not just the ones

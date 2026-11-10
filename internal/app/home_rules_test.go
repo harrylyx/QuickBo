@@ -26,21 +26,21 @@ func TestRulesRenameReorderAndCustomKeyword(t *testing.T) {
 	}
 	rules = append(rules, homeRule{ID: "custom-1", Name: "纪录片", Keywords: []string{"纪录", "记录"}})
 	ballots := []ballot{
-		{SiteKey: "a", Cat: "热门电影", Item: model.Item{Title: "庆余年"}},
+		{SiteKey: "a", Bucket: hotLaneID, Item: model.Item{Title: "庆余年"}},
 		{SiteKey: "a", Cat: "电影片", Item: model.Item{Title: "无间道"}},
 		{SiteKey: "b", Cat: "记录片", Item: model.Item{Title: "地球脉动"}},
 		{SiteKey: "a", Cat: "热映", Item: model.Item{Title: "不该出现"}},
 	}
 	lanes, lookup := tallyRules(ballots, rules)
-	if len(lanes) < 2 || lanes[0].Name != "大片" {
+	if len(lanes) < 3 || lanes[0].Name != hotLaneName || lanes[1].Name != "大片" {
 		t.Fatalf("lanes %v", laneNames(lanes))
 	}
-	if lanes[0].Items[0].Title != "庆余年" && lanes[0].Items[0].Title != "无间道" {
-		t.Fatalf("movie row %+v", lanes[0].Items)
+	if lanes[1].Items[0].Title != "无间道" {
+		t.Fatalf("movie row %+v", lanes[1].Items)
 	}
 	foundHot, foundDoc := false, false
 	for _, lane := range lanes {
-		if lane.Name == "最热影视" && len(lane.Items) == 1 && lane.Items[0].Title == "庆余年" {
+		if lane.Name == hotLaneName && len(lane.Items) == 1 && lane.Items[0].Title == "庆余年" {
 			foundHot = true
 		}
 		if lane.Name == "纪录片" && len(lane.Items) == 1 && lane.Items[0].Title == "地球脉动" {
@@ -71,7 +71,7 @@ func TestMoveRuleChangesHomeOrder(t *testing.T) {
 		{SiteKey: "a", Bucket: "movie", Item: model.Item{Title: "无间道"}},
 	}
 	a.rebuildHome()
-	if a.home[0].Name != "最热影视" {
+	if a.home[0].Name != hotLaneName {
 		t.Fatalf("before %v", laneNames(a.home))
 	}
 	movie := -1
@@ -90,7 +90,7 @@ func TestMoveRuleChangesHomeOrder(t *testing.T) {
 	if a.homeRules[0].ID != "movie" || a.homeRules[0].Name != "大片" {
 		t.Fatalf("rules %+v", a.homeRules[0])
 	}
-	if a.home[0].Name != "大片" {
+	if len(a.home) < 2 || a.home[0].Name != hotLaneName || a.home[1].Name != "大片" {
 		t.Fatalf("home %v", laneNames(a.home))
 	}
 }
@@ -139,15 +139,20 @@ func TestRuleButtonsDoNotCrashTheFrame(t *testing.T) {
 	if err := tt.Click("恢复默认"); err != nil {
 		t.Fatal(err)
 	}
-	if len(a.homeRules) != len(defaultHomeRules()) || a.homeRules[0].ID != "hot" {
+	if len(a.homeRules) != len(defaultHomeRules()) || a.homeRules[0].ID != "new" {
 		t.Fatalf("rules not reset: %+v", a.homeRules)
+	}
+	for _, rule := range a.homeRules {
+		if rule.ID == hotLaneID {
+			t.Fatalf("built-in hot lane must not be editable: %+v", a.homeRules)
+		}
 	}
 	if len(a.ruleNames) != len(a.homeRules) || len(a.ruleWords) != len(a.homeRules) ||
 		len(a.ruleFocus) != len(a.homeRules)*2 {
 		t.Fatalf("drafts out of sync: names=%d words=%d focus=%d",
 			len(a.ruleNames), len(a.ruleWords), len(a.ruleFocus))
 	}
-	if a.ruleNames[0] != "最热影视" {
+	if a.ruleNames[0] != "最新影视" {
 		t.Fatalf("draft shows stale text: %q", a.ruleNames[0])
 	}
 	tt.Frame()
@@ -195,6 +200,43 @@ func TestRestoreSettingsWithExplicitConfig(t *testing.T) {
 	}
 	if len(a.ruleNames) != 1 || a.ruleNames[0] != "纪录片" {
 		t.Fatalf("drafts %v", a.ruleNames)
+	}
+}
+
+func TestRestoreSettingsDropsLegacyHotRule(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	write := func(rules []homeRule) {
+		t.Helper()
+		data, err := json.Marshal(savedSettings{HomeRules: rules})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write([]homeRule{
+		{ID: hotLaneID, Name: hotLaneName, Keywords: []string{"最热", "热门"}},
+		{ID: "custom-7", Name: "纪录片", Keywords: []string{"纪录"}},
+	})
+	a := New()
+	a.settingsPath = path
+	a.RestoreSettings()
+	if len(a.homeRules) != 1 || a.homeRules[0].ID != "custom-7" {
+		t.Fatalf("legacy hot rule was not dropped: %+v", a.homeRules)
+	}
+
+	write([]homeRule{{ID: hotLaneID, Name: hotLaneName, Keywords: []string{"最热"}}})
+	b := New()
+	b.settingsPath = path
+	b.RestoreSettings()
+	if len(b.homeRules) != len(defaultHomeRules()) {
+		t.Fatalf("hot-only settings should fall back to defaults: %+v", b.homeRules)
+	}
+	for _, rule := range b.homeRules {
+		if rule.ID == hotLaneID {
+			t.Fatalf("default rules still contain built-in hot: %+v", b.homeRules)
+		}
 	}
 }
 

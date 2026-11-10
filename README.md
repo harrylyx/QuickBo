@@ -65,7 +65,7 @@ CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -o quickbo ./cmd/quickbo
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o quickbo ./cmd/quickbo
 ```
 
-订阅列表和偏好记在用户配置目录的 `quickbo/settings.json`，下次启动会加载全部启用的订阅。首次采集的资源缓存在同目录的 `cache.json`；修改首页分类规则后点「保存」只用缓存重算，点「重新采集」才会更新片源内容。删掉 `settings.json` 就回到空壳。
+订阅列表和偏好记在用户配置目录的 `quickbo/settings.json`，下次启动会加载全部启用的订阅。首次采集的分类与首页候选缓存在同目录的 `cache.json`；「最热影视」按各源首页候选的跨源重复数、清晰度和年份聚合。修改分类规则后点「保存」只用缓存重算，点「重新采集」才会更新片源内容。采集缓存格式升级时，旧缓存自动失效并重新采集一次。删掉 `settings.json` 就回到空壳。
 
 ## 参考与许可
 

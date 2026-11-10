@@ -2,7 +2,10 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -48,9 +51,24 @@ func TestSourceSampleTriesLaterCategories(t *testing.T) {
 	if !ok || len(page.Items) == 0 || page.Items[0].Title != "有" {
 		t.Fatal("second category has a title, source should be kept")
 	}
-	tooLate := &yieldSrc{
-		cats: []model.Category{{ID: "a"}, {ID: "b"}, {ID: "c"}, {ID: "d"}},
+	fifth := &yieldSrc{
+		cats: []model.Category{{ID: "a"}, {ID: "b"}, {ID: "c"}, {ID: "d"}, {ID: "e"}},
 		pages: []model.Page{
+			{},
+			{},
+			{},
+			{},
+			{Items: []model.Item{{Title: "第五类"}}},
+		},
+	}
+	if _, ok := sourceSample(context.Background(), fifth); !ok {
+		t.Fatal("the fifth category should still be probed")
+	}
+	tooLate := &yieldSrc{
+		cats: []model.Category{{ID: "a"}, {ID: "b"}, {ID: "c"}, {ID: "d"}, {ID: "e"}, {ID: "f"}},
+		pages: []model.Page{
+			{},
+			{},
 			{},
 			{},
 			{},
@@ -58,7 +76,7 @@ func TestSourceSampleTriesLaterCategories(t *testing.T) {
 		},
 	}
 	if _, ok := sourceSample(context.Background(), tooLate); ok {
-		t.Fatal("only the fourth category listed anything; the probe stops at three")
+		t.Fatal("only the sixth category listed anything; the probe stops at five")
 	}
 	broken := &yieldSrc{err: errors.New("eof")}
 	if _, ok := sourceSample(context.Background(), broken); ok {
@@ -151,20 +169,113 @@ func TestLoadIndexHidesEmptyAndFailed(t *testing.T) {
 	if a.screen != screenHome || a.sideSel != "home" || a.siteKey != "" {
 		t.Fatalf("screen %s side %s site %s", a.screen, a.sideSel, a.siteKey)
 	}
-	if len(a.home) != 1 || a.home[0].Name != "最热影视" || a.home[0].Items[0].Title != "有结果" {
+	if len(a.home) != 1 || a.home[0].Name != hotLaneName || a.home[0].Items[0].Title != "有结果" {
 		t.Fatalf("home %+v", a.home)
+	}
+}
+
+func TestKeepWorkingCachesHotCandidates(t *testing.T) {
+	a := New()
+	a.settingsPath = filepath.Join(t.TempDir(), "settings.json")
+	a.cfgRef = "ref"
+	s := &yieldSrc{
+		level: config.LevelYes,
+		key:   "hot-source",
+		name:  "热榜源",
+		cats: []model.Category{
+			{ID: "home", Name: "首页"},
+			{ID: "movie", Name: "电影片"},
+		},
+		pages: []model.Page{
+			{Items: []model.Item{{ID: "1", Title: "热播片", Remarks: "HD", Year: "2024"}}},
+			{Items: []model.Item{{ID: "2", Title: "无间道"}}},
+		},
+	}
+	a.catalog = &source.Catalog{Sites: []source.Source{s}}
+	done := make(chan struct{})
+	a.afterLoad = func() { close(done) }
+	a.keepWorking(context.Background(), a.catalog)
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("collection did not finish")
+	}
+	c := a.readCache("ref")
+	if c == nil || len(c.Sites) != 1 || len(c.Sites[0].Hot) != 1 || c.Sites[0].Hot[0].Title != "热播片" {
+		t.Fatalf("hot facts were not cached: %+v", c)
+	}
+	if len(c.Sites[0].Cats) != 1 || c.Sites[0].Cats[0].Name != "电影片" {
+		t.Fatalf("category facts were not cached: %+v", c.Sites[0])
+	}
+	if len(a.home) < 2 || a.home[0].Name != hotLaneName || a.home[0].Items[0].Title != "热播片" || a.home[1].Name != "电影" {
+		t.Fatalf("home %v", laneNames(a.home))
+	}
+	if len(a.lookup[normTitle("热播片")]) != 1 {
+		t.Fatalf("hot title is not reachable: %+v", a.lookup)
+	}
+}
+
+func TestLegacyCacheForcesRecollection(t *testing.T) {
+	a := New()
+	a.settingsPath = filepath.Join(t.TempDir(), "settings.json")
+	ref := "https://legacy.example/tvbox.json"
+	a.writeCache(&cacheData{Ref: ref, Sites: []cacheSite{{
+		Key: "legacy", Name: "旧缓存",
+		Hot:  []model.Item{{Title: "旧候选"}},
+		Cats: []cacheCat{{Name: "电影片", Items: []model.Item{{Title: "旧电影"}}}},
+	}}})
+	b, err := os.ReadFile(a.cachePath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(b, &raw); err != nil {
+		t.Fatal(err)
+	}
+	raw["version"] = 1
+	b, err = json.Marshal(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(a.cachePath(), b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	a.probeSite = func(context.Context, source.Source) (model.Page, bool) {
+		return model.Page{Items: []model.Item{{ID: "1", Title: "重采片"}}}, true
+	}
+	done := make(chan struct{})
+	a.afterLoad = func() { close(done) }
+	cfg := &config.Config{Sites: []config.Site{{
+		Key: "legacy", Name: "旧缓存", Type: config.TypeJSON, API: "http://127.0.0.1:1/api",
+	}}}
+	a.apply(cfg, ref)
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("legacy cache did not trigger a fresh collection")
+	}
+	if len(a.home) != 1 || a.home[0].Name != hotLaneName || a.home[0].Items[0].Title != "重采片" {
+		t.Fatalf("home %v", laneNames(a.home))
+	}
+	c := a.readCache(ref)
+	if c == nil || c.Version != cacheVersion || len(c.Sites) != 1 || len(c.Sites[0].Hot) != 1 || c.Sites[0].Hot[0].Title != "重采片" {
+		t.Fatalf("fresh cache was not written: %+v", c)
 	}
 }
 
 type yieldSrc struct {
 	level config.Level
+	key   string
+	name  string
 	cats  []model.Category
 	pages []model.Page
 	err   error
 	n     int
 }
 
-func (s yieldSrc) Meta() source.Meta { return source.Meta{Level: s.level} }
+func (s yieldSrc) Meta() source.Meta {
+	return source.Meta{Key: s.key, Name: s.name, Level: s.level}
+}
 
 func (s yieldSrc) Categories(context.Context) ([]model.Category, error) {
 	if s.err != nil && len(s.cats) == 0 {

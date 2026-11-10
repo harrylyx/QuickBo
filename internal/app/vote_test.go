@@ -32,7 +32,8 @@ func TestVoteRanksOverlapFirst(t *testing.T) {
 }
 
 func TestBucketsFollowSourceCategories(t *testing.T) {
-	if got := bucketsFor("最新热播"); len(got) != 2 || got[0] != "hot" || got[1] != "new" {
+	// The hot lane is synthetic now; "热播" only votes through the new rule.
+	if got := bucketsFor("最新热播"); len(got) != 1 || got[0] != "new" {
 		t.Fatalf("最新热播 -> %v", got)
 	}
 	if got := bucketsFor("香港剧"); len(got) != 1 || got[0] != "region:香港" {
@@ -87,6 +88,41 @@ func TestMirrorsShareOneVote(t *testing.T) {
 	}
 	if len(lookup[normTitle("庆余年")]) != 2 {
 		t.Fatal("both mirrors stay available on the title")
+	}
+}
+
+func TestHotLaneRanksByVotersClarityAndYear(t *testing.T) {
+	ballots := []ballot{
+		{SiteKey: "a", Voter: "host:a", Bucket: hotLaneID, Item: model.Item{Title: "多源片", Remarks: "TS 枪版", Year: "2010"}},
+		{SiteKey: "b", Voter: "host:b", Bucket: hotLaneID, Item: model.Item{Title: "多源片", Remarks: "TS 枪版", Year: "2010"}},
+		{SiteKey: "c", Voter: "host:c", Bucket: hotLaneID, Item: model.Item{Title: "多源片", Remarks: "TS 枪版", Year: "2010"}},
+		{SiteKey: "a", Voter: "host:mirror", Bucket: hotLaneID, Item: model.Item{Title: "更近片", Remarks: "4K", Year: "2025"}},
+		{SiteKey: "d", Voter: "host:other", Bucket: hotLaneID, Item: model.Item{Title: "更近片", Remarks: "4K", Year: "2025"}},
+		{SiteKey: "a", Voter: "host:mirror", Bucket: hotLaneID, Item: model.Item{Title: "新片", Remarks: "4K", Year: "2024"}},
+		{SiteKey: "e", Voter: "host:another", Bucket: hotLaneID, Item: model.Item{Title: "新片", Remarks: "4K", Year: "2024"}},
+		{SiteKey: "a", Voter: "host:mirror", Bucket: hotLaneID, Item: model.Item{Title: "旧片", Remarks: "HD", Year: "2020"}},
+		{SiteKey: "b", Voter: "host:mirror", Bucket: hotLaneID, Item: model.Item{Title: "旧片", Remarks: "HD", Year: "2020"}},
+		{SiteKey: "f", Voter: "host:fourth", Bucket: hotLaneID, Item: model.Item{Title: "旧片", Remarks: "HD", Year: "2020"}},
+		{SiteKey: "g", Voter: "host:solo", Bucket: hotLaneID, Item: model.Item{Title: "单片", Remarks: "4K", Year: "2025"}},
+	}
+	lane, lookup := hotLane(ballots)
+	if lane.Key != hotLaneID || lane.Name != hotLaneName {
+		t.Fatalf("lane %+v", lane)
+	}
+	want := []string{"多源片", "更近片", "新片", "旧片", "单片"}
+	if len(lane.Items) != len(want) {
+		t.Fatalf("items %+v", lane.Items)
+	}
+	for i, title := range want {
+		if lane.Items[i].Title != title {
+			t.Fatalf("rank %d = %q, want %q", i, lane.Items[i].Title, title)
+		}
+		if !strings.HasPrefix(lane.Items[i].ID, titlePrefix) {
+			t.Fatalf("item %q is not an aggregated title: %q", title, lane.Items[i].ID)
+		}
+	}
+	if len(lookup[normTitle("多源片")]) != 3 || len(lookup[normTitle("旧片")]) != 3 {
+		t.Fatalf("lookup %+v", lookup)
 	}
 }
 

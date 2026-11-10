@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -12,6 +13,12 @@ import (
 	"github.com/harrylyx/QuickBo/internal/config"
 	"github.com/harrylyx/QuickBo/internal/model"
 	"github.com/harrylyx/QuickBo/internal/source"
+)
+
+const (
+	hotLaneID    = "hot"
+	hotLaneName  = "最热影视"
+	hotLaneLimit = 18
 )
 
 // ballot is one title a source listed inside a home bucket.
@@ -74,10 +81,14 @@ func tallyRules(ballots []ballot, rules []homeRule) ([]homeLane, map[string][]ti
 		rules = defaultHomeRules()
 	}
 	ballots = expandBallots(ballots, rules)
-	lanes := make([]homeLane, 0, len(rules))
+	lanes := make([]homeLane, 0, len(rules)+1)
 	lookup := map[string][]titleHit{}
+	if lane, part := hotLane(ballots); len(lane.Items) > 0 {
+		lanes = append(lanes, lane)
+		mergeLookup(lookup, part)
+	}
 	for _, rule := range rules {
-		if rule.ID == "" || strings.TrimSpace(rule.Name) == "" {
+		if rule.ID == "" || rule.ID == hotLaneID || strings.TrimSpace(rule.Name) == "" {
 			continue
 		}
 		lane, part := votedLane(rule.ID, rule.Name, filterBucket(ballots, rule.ID))
@@ -118,14 +129,17 @@ func filterBucket(ballots []ballot, bucket string) []ballot {
 	return out
 }
 
-func votedLane(key, name string, ballots []ballot) (homeLane, map[string][]titleHit) {
-	type acc struct {
-		item   model.Item
-		order  []string
-		hits   map[string]titleHit
-		voters map[string]struct{}
-	}
-	by := map[string]*acc{}
+type laneCandidate struct {
+	item    model.Item
+	order   []string
+	hits    map[string]titleHit
+	voters  map[string]struct{}
+	clarity int
+	year    int
+}
+
+func groupBallots(ballots []ballot) ([]string, map[string]*laneCandidate) {
+	by := map[string]*laneCandidate{}
 	var keys []string
 	for _, b := range ballots {
 		if !usableTitle(b.Item.Title) {
@@ -137,12 +151,18 @@ func votedLane(key, name string, ballots []ballot) (homeLane, map[string][]title
 		}
 		a := by[id]
 		if a == nil {
-			a = &acc{hits: map[string]titleHit{}, voters: map[string]struct{}{}}
+			a = &laneCandidate{hits: map[string]titleHit{}, voters: map[string]struct{}{}}
 			by[id] = a
 			keys = append(keys, id)
 		}
 		if v := b.voter(); v != "" {
 			a.voters[v] = struct{}{}
+		}
+		if score := clarityScore(b.Item.Remarks); score > a.clarity {
+			a.clarity = score
+		}
+		if year := itemYear(b.Item.Year); year > a.year {
+			a.year = year
 		}
 		if _, ok := a.hits[b.SiteKey]; ok {
 			continue
@@ -162,16 +182,26 @@ func votedLane(key, name string, ballots []ballot) (homeLane, map[string][]title
 		if a.item.Year == "" {
 			a.item.Year = b.Item.Year
 		}
-	}
-	sort.SliceStable(keys, func(i, j int) bool {
-		ai, aj := by[keys[i]], by[keys[j]]
-		if len(ai.voters) != len(aj.voters) {
-			return len(ai.voters) > len(aj.voters)
+		if a.item.Remarks == "" {
+			a.item.Remarks = b.Item.Remarks
 		}
-		return ai.item.Title < aj.item.Title
-	})
-	if len(keys) > 18 {
-		keys = keys[:18]
+	}
+	return keys, by
+}
+
+func itemYear(raw string) int {
+	for i := 0; i+4 <= len(raw); i++ {
+		n, err := strconv.Atoi(raw[i : i+4])
+		if err == nil && n >= 1900 && n <= 2100 {
+			return n
+		}
+	}
+	return 0
+}
+
+func laneFromCandidates(key, name string, keys []string, by map[string]*laneCandidate, limit int) (homeLane, map[string][]titleHit) {
+	if limit > 0 && len(keys) > limit {
+		keys = keys[:limit]
 	}
 	lane := homeLane{Key: key, Name: name}
 	part := map[string][]titleHit{}
@@ -187,6 +217,42 @@ func votedLane(key, name string, ballots []ballot) (homeLane, map[string][]title
 		part[id] = hits
 	}
 	return lane, part
+}
+
+func votedLane(key, name string, ballots []ballot) (homeLane, map[string][]titleHit) {
+	keys, by := groupBallots(ballots)
+	sort.SliceStable(keys, func(i, j int) bool {
+		ai, aj := by[keys[i]], by[keys[j]]
+		if len(ai.voters) != len(aj.voters) {
+			return len(ai.voters) > len(aj.voters)
+		}
+		return ai.item.Title < aj.item.Title
+	})
+	return laneFromCandidates(key, name, keys, by, 18)
+}
+
+// hotLane aggregates cached front-page candidates instead of depending on a
+// source category being named 热门. Mirrors share one voter, then sharpness,
+// recency and title provide deterministic tie-breakers.
+func hotLane(ballots []ballot) (homeLane, map[string][]titleHit) {
+	keys, by := groupBallots(filterBucket(ballots, hotLaneID))
+	sort.SliceStable(keys, func(i, j int) bool {
+		ai, aj := by[keys[i]], by[keys[j]]
+		if len(ai.voters) != len(aj.voters) {
+			return len(ai.voters) > len(aj.voters)
+		}
+		if ai.clarity != aj.clarity {
+			return ai.clarity > aj.clarity
+		}
+		if ai.year != aj.year {
+			return ai.year > aj.year
+		}
+		if ai.item.Title != aj.item.Title {
+			return ai.item.Title < aj.item.Title
+		}
+		return keys[i] < keys[j]
+	})
+	return laneFromCandidates(hotLaneID, hotLaneName, keys, by, hotLaneLimit)
 }
 
 func mergeLookup(dst, src map[string][]titleHit) {
@@ -490,13 +556,10 @@ type catPick struct {
 	buckets []string
 }
 
-const (
-	ballotCatLimit = 16
-	ballotHotLimit = 4
-)
+const ballotCatLimit = 16
 
-// selectBallotCats keeps one category per homepage rule, and up to four
-// for the hot rule. Front pages and junk genres are left out.
+// selectBallotCats keeps one category per homepage rule. Front pages and junk
+// genres are left out.
 func selectBallotCats(cats []model.Category) []catPick {
 	return selectBallotCatsRules(cats, nil)
 }
@@ -536,11 +599,7 @@ func selectBallotCatsRules(cats []model.Category, rules []homeRule) []catPick {
 		}
 		keep := make([]string, 0, len(c.b))
 		for _, id := range c.b {
-			limit := 1
-			if id == "hot" {
-				limit = ballotHotLimit
-			}
-			if used[id] >= limit {
+			if used[id] > 0 {
 				continue
 			}
 			keep = append(keep, id)

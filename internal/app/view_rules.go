@@ -12,7 +12,7 @@ func (a *App) viewRules(c *ui.Context, th *ui.Theme) {
 	ui.Scroll(c).Grow(1).Children(func() {
 		ui.Column(c).Gap(16).Children(func() {
 			ui.Row(c).AlignItems(ui.Center).Gap(12).Children(func() {
-				ui.Text(c, "名称是首页上的行标题，关键字匹配片源已经分好的分类名。改动先留在这里，点「保存」才写入设置并按本地缓存重算首页，不会重新联网采集。要更新片源内容，点「重新采集」。").TextColor(th.TextMuted).Shrink(1).Wrap()
+				ui.Text(c, "「最热影视」由各源首页候选自动聚合，不在这里编辑。其余行按关键字匹配片源分类名；改动先留在这里，点「保存」才写入设置并按本地缓存重算首页，不会重新联网采集。要更新首页候选和分类内容，点「重新采集」。").TextColor(th.TextMuted).Shrink(1).Wrap()
 				ui.Column(c).Grow(1)
 				if a.rulesDirty {
 					ui.Text(c, "有未保存的修改").TextColor(th.Accent).SingleLine()

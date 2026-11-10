@@ -299,6 +299,7 @@ func TestLoadErrorOffersRetryAndEmptyHistoryOffersHome(t *testing.T) {
 
 	b := New()
 	b.settingsPath = ""
+	b.lib = &library{}
 	b.catalog = &source.Catalog{}
 	b.screen = screenHistory
 	b.sideSel = "history"
@@ -312,6 +313,27 @@ func TestLoadErrorOffersRetryAndEmptyHistoryOffersHome(t *testing.T) {
 	}
 	if b.screen != screenHome || b.sideSel != "home" {
 		t.Fatalf("empty-state action did not go home: %q / %q", b.screen, b.sideSel)
+	}
+}
+
+func TestHotRailHidesAllSourceLink(t *testing.T) {
+	a := New()
+	a.settingsPath = ""
+	a.lib = &library{}
+	a.catalog = &source.Catalog{}
+	a.screen = screenHome
+	a.sideSel = "home"
+	a.lastSide = "home"
+	a.home = []homeLane{{
+		Key: hotLaneID, Name: hotLaneName,
+		Items: []model.Item{{ID: titlePrefix + "hot-title", Title: "热播片"}},
+	}}
+	tt := ui.NewTester(a.View, 1200, 800)
+	if !tt.HasText(hotLaneName) {
+		t.Fatalf("missing hot rail: %q", tt.Texts())
+	}
+	if _, ok := tt.Find("全部"); ok {
+		t.Fatalf("synthetic hot rail still has a dead all-source link: %q", tt.Texts())
 	}
 }
 

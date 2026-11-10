@@ -15,7 +15,6 @@ type homeRule struct {
 
 func defaultHomeRules() []homeRule {
 	return []homeRule{
-		{ID: "hot", Name: "最热影视", Keywords: []string{"最热", "热门", "热播", "排行"}},
 		{ID: "new", Name: "最新影视", Keywords: []string{"最新", "最近", "新片"}},
 		{ID: "movie", Name: "电影", Keywords: []string{"电影"}},
 		{ID: "tv", Name: "电视剧", Keywords: []string{"电视剧", "连续剧", "剧集"}},
@@ -52,7 +51,7 @@ func normalizeRules(in []homeRule) []homeRule {
 	for _, rule := range in {
 		rule.ID = strings.TrimSpace(rule.ID)
 		rule.Name = strings.TrimSpace(rule.Name)
-		if rule.ID == "" || rule.Name == "" || seen[rule.ID] {
+		if rule.ID == "" || rule.ID == hotLaneID || rule.Name == "" || seen[rule.ID] {
 			continue
 		}
 		var words []string
