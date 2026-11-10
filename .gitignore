@@ -1,0 +1,5 @@
+/mybox
+/mybox.exe
+/dist/
+*.exe
+.DS_Store
