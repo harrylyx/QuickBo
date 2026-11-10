@@ -225,6 +225,8 @@ type cmsVideo struct {
 	VodYear     string `json:"vod_year"`
 	VodArea     string `json:"vod_area"`
 	VodContent  string `json:"vod_content"`
+	VodDirector string `json:"vod_director"`
+	VodActor    string `json:"vod_actor"`
 	VodPlayFrom string `json:"vod_play_from"`
 	VodPlayURL  string `json:"vod_play_url"`
 }
@@ -279,6 +281,7 @@ func parseJSON(body []byte) ([]model.Category, pageResult, error) {
 			ID: id, Title: title, Pic: strings.TrimSpace(v.VodPic),
 			Remarks: strings.TrimSpace(v.VodRemarks), Year: strings.TrimSpace(v.VodYear),
 			Area: strings.TrimSpace(v.VodArea), TypeName: strings.TrimSpace(v.TypeName),
+			Director: strings.TrimSpace(v.VodDirector), Actors: strings.TrimSpace(v.VodActor),
 			Content: model.StripTags(v.VodContent),
 			Lines:   model.ParsePlay(v.VodPlayFrom, v.VodPlayURL),
 		})
@@ -302,23 +305,25 @@ type xmlDD struct {
 }
 
 type xmlVideo struct {
-	ID      string  `xml:"id"`
-	TID     string  `xml:"tid"`
-	Name    string  `xml:"name"`
-	Pic     string  `xml:"pic"`
-	Note    string  `xml:"note"`
-	Type    string  `xml:"type"`
-	Year    string  `xml:"year"`
-	Area    string  `xml:"area"`
-	Des     string  `xml:"des"`
-	Lang    string  `xml:"lang"`
-	VodName string  `xml:"vod_name"`
-	VodPic  string  `xml:"vod_pic"`
-	VodID   string  `xml:"vod_id"`
-	Content string  `xml:"vod_content"`
-	From    string  `xml:"vod_play_from"`
-	Play    string  `xml:"vod_play_url"`
-	DL      []xmlDD `xml:"dl>dd"`
+	ID       string  `xml:"id"`
+	TID      string  `xml:"tid"`
+	Name     string  `xml:"name"`
+	Pic      string  `xml:"pic"`
+	Note     string  `xml:"note"`
+	Type     string  `xml:"type"`
+	Year     string  `xml:"year"`
+	Area     string  `xml:"area"`
+	Des      string  `xml:"des"`
+	Director string  `xml:"director"`
+	Actor    string  `xml:"actor"`
+	Lang     string  `xml:"lang"`
+	VodName  string  `xml:"vod_name"`
+	VodPic   string  `xml:"vod_pic"`
+	VodID    string  `xml:"vod_id"`
+	Content  string  `xml:"vod_content"`
+	From     string  `xml:"vod_play_from"`
+	Play     string  `xml:"vod_play_url"`
+	DL       []xmlDD `xml:"dl>dd"`
 }
 
 type xmlList struct {
@@ -404,6 +409,7 @@ func parseXML(body []byte) ([]model.Category, pageResult, error) {
 				ID: id, Title: title, Pic: pic, Remarks: strings.TrimSpace(v.Note),
 				Year: strings.TrimSpace(v.Year), Area: strings.TrimSpace(v.Area),
 				TypeName: strings.TrimSpace(v.Type), Content: model.StripTags(content),
+				Director: strings.TrimSpace(v.Director), Actors: strings.TrimSpace(v.Actor),
 				Lines: model.ParsePlay(from, play),
 			})
 		}
