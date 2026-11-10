@@ -51,32 +51,48 @@ func hostOf(raw string) string {
 	return u.Host
 }
 
+func offerGroup(n int) string {
+	if label := clarityLabel(n); label != "" {
+		return label
+	}
+	return "其他"
+}
+
 func (a *App) viewOffers(c *ui.Context, th *ui.Theme) {
-	ui.Column(c).Gap(8).Children(func() {
-		ui.Row(c).AlignItems(ui.Center).Gap(8).Children(func() {
-			ui.Text(c, "片源").FontSize(16).Bold()
-			ui.Column(c).Grow(1)
-			a.choice(c, th, "offer-by-clarity", "清晰度", a.offerBy == offerByClarity, func() {
-				a.offerBy = offerByClarity
-				a.sortOffers()
+	type group struct {
+		name string
+		idx  []int
+	}
+	var groups []group
+	for i, o := range a.offers {
+		name := offerGroup(o.Clarity)
+		if len(groups) == 0 || groups[len(groups)-1].name != name {
+			groups = append(groups, group{name: name})
+		}
+		last := &groups[len(groups)-1]
+		last.idx = append(last.idx, i)
+	}
+	ui.Column(c).Gap(14).Children(func() {
+		ui.Text(c, "片源").FontSize(16).Bold()
+		for _, g := range groups {
+			g := g
+			ui.Column(c).Gap(8).Children(func() {
+				ui.Text(c, g.name).FontSize(13).TextColor(th.TextMuted)
+				ui.Row(c).Gap(8).Wrap().Children(func() {
+					for _, i := range g.idx {
+						i := i
+						o := a.offers[i]
+						label := o.SiteName
+						if o.Width > 0 && o.Height > 0 {
+							label += fmt.Sprintf(" · %d×%d", o.Width, o.Height)
+						}
+						if st := a.stats[o.SiteKey]; st.Delay > 0 {
+							label += fmt.Sprintf(" · %d ms", st.Delay)
+						}
+						a.choice(c, th, "offer:"+o.SiteKey, label, i == a.offerPick, func() { a.pickOffer(i) })
+					}
+				})
 			})
-			a.choice(c, th, "offer-by-delay", "延迟", a.offerBy != offerByClarity, func() {
-				a.offerBy = offerByDelay
-				a.sortOffers()
-			})
-		})
-		ui.Row(c).Gap(8).Wrap().Children(func() {
-			for i, o := range a.offers {
-				i, o := i, o
-				label := o.SiteName
-				if q := clarityLabel(o.Clarity); q != "" {
-					label += " · " + q
-				}
-				if st := a.stats[o.SiteKey]; st.Delay > 0 {
-					label += fmt.Sprintf(" · %d ms", st.Delay)
-				}
-				a.choice(c, th, "offer:"+o.SiteKey, label, i == a.offerPick, func() { a.pickOffer(i) })
-			}
-		})
+		}
 	})
 }

@@ -658,7 +658,7 @@ func (a *App) viewDetail(c *ui.Context, th *ui.Theme) {
 			}
 			if d == nil {
 				if a.detailLoading {
-					a.loadingRow(c, th, "正在读取各片源的线路…")
+					a.loadingRow(c, th, "正在读取各片源的线路和清晰度…")
 				}
 				return
 			}

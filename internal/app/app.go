@@ -145,7 +145,6 @@ type App struct {
 	searchLookup  map[string][]titleHit
 	offers        []playOffer
 	offerPick     int
-	offerBy       string
 	stats         map[string]sourceStat
 
 	gen          int

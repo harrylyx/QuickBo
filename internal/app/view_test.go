@@ -101,23 +101,11 @@ func TestDetailCanSortOffersByClarityOrDelay(t *testing.T) {
 	}
 	a.sortOffers()
 	tt := ui.NewTester(a.View, 1200, 800)
-	if !tt.HasText("清晰度") || !tt.HasText("延迟") || !tt.HasText("快源") {
+	if !tt.HasText("4K") || !tt.HasText("其他") || !tt.HasText("慢源") || !tt.HasText("快源 · 40 ms") {
 		t.Fatalf("texts %q", tt.Texts())
 	}
-	if a.offers[0].SiteKey != "fast" {
-		t.Fatalf("default order %s", a.offers[0].SiteKey)
-	}
-	if err := tt.Click("清晰度"); err != nil {
-		t.Fatal(err)
-	}
-	if a.offerBy != offerByClarity || a.offers[0].SiteKey != "slow" {
-		t.Fatalf("clarity order %s by %s", a.offers[0].SiteKey, a.offerBy)
-	}
-	if err := tt.Click("延迟"); err != nil {
-		t.Fatal(err)
-	}
-	if a.offerBy != offerByDelay || a.offers[0].SiteKey != "fast" {
-		t.Fatalf("delay order %s by %s", a.offers[0].SiteKey, a.offerBy)
+	if a.offers[0].SiteKey != "slow" {
+		t.Fatalf("sharper group should come first, got %s", a.offers[0].SiteKey)
 	}
 }
 

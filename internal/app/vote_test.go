@@ -90,12 +90,15 @@ func TestMirrorsShareOneVote(t *testing.T) {
 	}
 }
 
-func TestOffersSortByDelayFirst(t *testing.T) {
+func TestOffersGroupByClarityThenSpeed(t *testing.T) {
 	if clarityScore("4K") <= clarityScore("1080P 蓝光") || clarityScore("1080P") <= clarityScore("720P") {
 		t.Fatal("sharper copy should score higher")
 	}
 	if clarityScore("枪版 TS") >= clarityScore("HD") {
 		t.Fatal("cam copy should rank last")
+	}
+	if scoreFromPixels(3840, 2160) != 50 || scoreFromPixels(1920, 1080) != 40 || scoreFromPixels(1280, 720) != 30 || scoreFromPixels(640, 360) != 5 {
+		t.Fatal("measured frame should land in the same buckets")
 	}
 	a := &App{stats: map[string]sourceStat{"slow": {Delay: 800}, "fast": {Delay: 40}, "sharp": {Delay: 40}}}
 	a.offers = []playOffer{
@@ -106,16 +109,8 @@ func TestOffersSortByDelayFirst(t *testing.T) {
 	}
 	a.offerPick = 0
 	a.sortOffers()
-	if a.offers[0].SiteKey != "sharp" || a.offers[1].SiteKey != "fast" || a.offers[2].SiteKey != "slow" || a.offers[3].SiteKey != "blur" {
-		t.Fatalf("delay order %s %s %s %s", a.offers[0].SiteKey, a.offers[1].SiteKey, a.offers[2].SiteKey, a.offers[3].SiteKey)
-	}
-	if a.offerPick != 2 {
-		t.Fatalf("selected source moved to %d", a.offerPick)
-	}
-	a.offerBy = offerByClarity
-	a.sortOffers()
 	if a.offers[0].SiteKey != "sharp" || a.offers[1].SiteKey != "slow" || a.offers[2].SiteKey != "blur" || a.offers[3].SiteKey != "fast" {
-		t.Fatalf("clarity order %s %s %s %s", a.offers[0].SiteKey, a.offers[1].SiteKey, a.offers[2].SiteKey, a.offers[3].SiteKey)
+		t.Fatalf("order %s %s %s %s", a.offers[0].SiteKey, a.offers[1].SiteKey, a.offers[2].SiteKey, a.offers[3].SiteKey)
 	}
 	if a.offerPick != 1 {
 		t.Fatalf("selected source moved to %d", a.offerPick)

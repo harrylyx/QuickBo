@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 	"unicode"
 
 	"github.com/harrylyx/QuickBo/internal/config"
@@ -239,6 +240,30 @@ func clarityLabel(n int) string {
 	}
 }
 
+// scoreFromPixels maps a measured frame to the same buckets as the text labels.
+// Zero means the picture size was not readable.
+func scoreFromPixels(w, h int) int {
+	if w <= 0 || h <= 0 {
+		return 0
+	}
+	long, short := w, h
+	if h > w {
+		long, short = h, w
+	}
+	switch {
+	case long >= 3000 || short >= 1600:
+		return 50
+	case long >= 1600 || short >= 900:
+		return 40
+	case long >= 1200 || short >= 700:
+		return 30
+	case long >= 700 || short >= 400:
+		return 20
+	default:
+		return 5
+	}
+}
+
 // playOffer is one source's copy of the title open on the detail page.
 type playOffer struct {
 	SiteKey  string
@@ -248,35 +273,22 @@ type playOffer struct {
 	Detail   *model.Detail
 	Err      string
 	Clarity  int
+	Width    int
+	Height   int
 }
-
-const (
-	offerByDelay   = "delay"
-	offerByClarity = "clarity"
-)
 
 func (a *App) sortOffers() {
 	picked := ""
 	if a.offerPick >= 0 && a.offerPick < len(a.offers) {
 		picked = a.offers[a.offerPick].SiteKey
 	}
-	byClarity := a.offerBy == offerByClarity
 	sort.SliceStable(a.offers, func(i, j int) bool {
+		if a.offers[i].Clarity != a.offers[j].Clarity {
+			return a.offers[i].Clarity > a.offers[j].Clarity
+		}
 		di, dj := a.delayOf(a.offers[i].SiteKey), a.delayOf(a.offers[j].SiteKey)
-		if byClarity {
-			if a.offers[i].Clarity != a.offers[j].Clarity {
-				return a.offers[i].Clarity > a.offers[j].Clarity
-			}
-			if di != dj {
-				return di < dj
-			}
-		} else {
-			if di != dj {
-				return di < dj
-			}
-			if a.offers[i].Clarity != a.offers[j].Clarity {
-				return a.offers[i].Clarity > a.offers[j].Clarity
-			}
+		if di != dj {
+			return di < dj
 		}
 		return a.offers[i].SiteName < a.offers[j].SiteName
 	})
@@ -348,8 +360,12 @@ func (a *App) openTitle(key string) {
 	a.offerPick = 0
 	a.siteKey = a.offers[0].SiteKey
 	offers := append([]playOffer(nil), a.offers...)
+	var parses []config.ParseItem
+	if a.cfg != nil {
+		parses = a.cfg.Parses
+	}
 	gen := a.bump()
-	go a.loadOffers(gen, offers, srcs)
+	go a.loadOffers(gen, offers, srcs, parses)
 }
 
 func (a *App) hitsFor(key string) []titleHit {
@@ -361,11 +377,14 @@ func (a *App) hitsFor(key string) []titleHit {
 	return a.lookup[key]
 }
 
-func (a *App) loadOffers(gen int, offers []playOffer, srcs map[string]source.Source) {
+func (a *App) loadOffers(gen int, offers []playOffer, srcs map[string]source.Source, parses []config.ParseItem) {
 	type result struct {
-		detail *model.Detail
-		err    string
-		score  int
+		detail   *model.Detail
+		err      string
+		score    int
+		measured bool
+		w        int
+		h        int
 	}
 	out := make([]result, len(offers))
 	var wg sync.WaitGroup
@@ -386,9 +405,17 @@ func (a *App) loadOffers(gen int, offers []playOffer, srcs map[string]source.Sou
 			cancel()
 			if err != nil {
 				out[i].err = err.Error()
-			} else {
-				out[i].detail = &d
-				out[i].score = clarityScore(o.Remarks + " " + episodeText(d))
+				return
+			}
+			out[i].detail = &d
+			out[i].score = clarityScore(o.Remarks + " " + episodeText(d))
+			mctx, mcancel := context.WithTimeout(context.Background(), 10*time.Second)
+			w, h := measureOffer(mctx, src, d, parses)
+			mcancel()
+			if score := scoreFromPixels(w, h); score > 0 {
+				out[i].score = score
+				out[i].measured = true
+				out[i].w, out[i].h = w, h
 			}
 		}(i, o)
 	}
@@ -408,7 +435,11 @@ func (a *App) loadOffers(gen int, offers []playOffer, srcs map[string]source.Sou
 				}
 				a.offers[i].Detail = out[j].detail
 				a.offers[i].Err = out[j].err
-				if out[j].score > a.offers[i].Clarity {
+				if out[j].measured {
+					a.offers[i].Clarity = out[j].score
+					a.offers[i].Width = out[j].w
+					a.offers[i].Height = out[j].h
+				} else if out[j].score > a.offers[i].Clarity {
 					a.offers[i].Clarity = out[j].score
 				}
 			}
