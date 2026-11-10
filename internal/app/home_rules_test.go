@@ -1,6 +1,9 @@
 package app
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -83,6 +86,7 @@ func TestMoveRuleChangesHomeOrder(t *testing.T) {
 	a.bindRuleEdits()
 	a.ruleNames[movie] = "大片"
 	a.moveRule(movie, -movie)
+	a.saveRules()
 	if a.homeRules[0].ID != "movie" || a.homeRules[0].Name != "大片" {
 		t.Fatalf("rules %+v", a.homeRules[0])
 	}
@@ -109,5 +113,124 @@ func TestRuleScreenListsEditableRows(t *testing.T) {
 	last := a.homeRules[len(a.homeRules)-1]
 	if last.Name != "新分类" || !strings.HasPrefix(last.ID, "custom-") {
 		t.Fatalf("last %+v", last)
+	}
+}
+
+// Clicking a button changes the rule list in the middle of a frame. The rest
+// of that frame must not index draft buffers that no longer match homeRules.
+func TestRuleButtonsDoNotCrashTheFrame(t *testing.T) {
+	a := New()
+	a.settingsPath = ""
+	a.catalog = &source.Catalog{}
+	a.screen = screenRules
+	a.sideSel = "rules"
+	a.homeRules = []homeRule{{ID: "custom-1", Name: "我的", Keywords: []string{"纪录"}}}
+	a.resetRuleEdits()
+	tt := ui.NewTester(a.View, 1200, 800)
+
+	if err := tt.Click("添加"); err != nil {
+		t.Fatal(err)
+	}
+	if len(a.homeRules) != 2 {
+		t.Fatalf("after add: %+v", a.homeRules)
+	}
+	tt.Frame()
+
+	if err := tt.Click("恢复默认"); err != nil {
+		t.Fatal(err)
+	}
+	if len(a.homeRules) != len(defaultHomeRules()) || a.homeRules[0].ID != "hot" {
+		t.Fatalf("rules not reset: %+v", a.homeRules)
+	}
+	if len(a.ruleNames) != len(a.homeRules) || len(a.ruleWords) != len(a.homeRules) ||
+		len(a.ruleFocus) != len(a.homeRules)*2 {
+		t.Fatalf("drafts out of sync: names=%d words=%d focus=%d",
+			len(a.ruleNames), len(a.ruleWords), len(a.ruleFocus))
+	}
+	if a.ruleNames[0] != "最热影视" {
+		t.Fatalf("draft shows stale text: %q", a.ruleNames[0])
+	}
+	tt.Frame()
+	if !tt.HasText("恢复默认") {
+		t.Fatal("rules screen did not render after reset")
+	}
+	if err := tt.Click("保存"); err != nil {
+		t.Fatal(err)
+	}
+	if a.screen != screenHome || a.rulesDirty {
+		t.Fatal("save must apply the drafts and refresh the home")
+	}
+	tt.Frame()
+}
+
+// An explicit --config must not skip the saved homepage rules and preferences.
+func TestRestoreSettingsWithExplicitConfig(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	data, err := json.Marshal(savedSettings{
+		Config:         "https://example.com/tvbox.json",
+		PreferExternal: true,
+		Light:          true,
+		HomeRules:      []homeRule{{ID: "custom-7", Name: "纪录片", Keywords: []string{"纪录"}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	a := New()
+	a.settingsPath = path
+	ref := a.RestoreSettings()
+	if ref != "https://example.com/tvbox.json" {
+		t.Fatalf("ref %q", ref)
+	}
+	if len(a.homeRules) != 1 || a.homeRules[0].Name != "纪录片" {
+		t.Fatalf("rules %+v", a.homeRules)
+	}
+	if !a.preferExternal || !a.light {
+		t.Fatal("saved preferences were not restored")
+	}
+	if a.catalog != nil || a.cfgRef != "" {
+		t.Fatal("RestoreSettings must not load a subscription")
+	}
+	if len(a.ruleNames) != 1 || a.ruleNames[0] != "纪录片" {
+		t.Fatalf("drafts %v", a.ruleNames)
+	}
+}
+
+func TestDeleteRuleKeepsOtherDrafts(t *testing.T) {
+	a := New()
+	a.settingsPath = ""
+	a.bindRuleEdits()
+	a.ruleWords[1] = "未提交的关键字"
+	a.deleteRule(0)
+	if len(a.ruleNames) != len(a.homeRules) || len(a.ruleWords) != len(a.homeRules) ||
+		len(a.ruleFocus) != len(a.homeRules)*2 {
+		t.Fatalf("drafts out of sync: rules=%d names=%d words=%d focus=%d",
+			len(a.homeRules), len(a.ruleNames), len(a.ruleWords), len(a.ruleFocus))
+	}
+	if a.ruleWords[0] != "未提交的关键字" {
+		t.Fatalf("uncommitted edit lost: %q", a.ruleWords[0])
+	}
+}
+
+func TestRuleRenameChangesHome(t *testing.T) {
+	a := New()
+	a.settingsPath = ""
+	a.ballots = []ballot{
+		{SiteKey: "a", Voter: "site:a", Bucket: "movie", Cat: "电影片", Item: model.Item{Title: "无间道"}},
+	}
+	a.rebuildHome()
+	a.bindRuleEdits()
+	for i, rule := range a.homeRules {
+		if rule.ID != "movie" {
+			continue
+		}
+		a.ruleNames[i] = "大片"
+		a.saveRules()
+		break
+	}
+	if len(a.home) != 1 || a.home[0].Name != "大片" {
+		t.Fatalf("home %v", laneNames(a.home))
 	}
 }

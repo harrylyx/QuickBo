@@ -161,11 +161,19 @@ func sameKeywords(a, b []string) bool {
 	return true
 }
 
+// bindRuleEdits keeps the draft buffers aligned with homeRules. Every render
+// indexes ruleNames[i] and ruleWords[i], so a shorter buffer would panic.
 func (a *App) bindRuleEdits() {
 	n := len(a.homeRules)
 	if len(a.ruleNames) == n && len(a.ruleWords) == n && len(a.ruleFocus) == n*2 {
 		return
 	}
+	a.resetRuleEdits()
+}
+
+// resetRuleEdits rebuilds the drafts from homeRules, dropping uncommitted text.
+func (a *App) resetRuleEdits() {
+	n := len(a.homeRules)
 	a.ruleNames = make([]string, n)
 	a.ruleWords = make([]string, n)
 	a.ruleFocus = make([]bool, n*2)
@@ -191,8 +199,7 @@ func (a *App) commitRule(i int) {
 	}
 	a.homeRules[i].Name = name
 	a.homeRules[i].Keywords = words
-	a.rebuildHome()
-	a.saveSettings()
+	a.rulesDirty = true
 }
 
 func (a *App) moveRule(i, dir int) {
@@ -205,8 +212,13 @@ func (a *App) moveRule(i, dir int) {
 	a.homeRules[i], a.homeRules[j] = a.homeRules[j], a.homeRules[i]
 	a.ruleNames[i], a.ruleNames[j] = a.ruleNames[j], a.ruleNames[i]
 	a.ruleWords[i], a.ruleWords[j] = a.ruleWords[j], a.ruleWords[i]
-	a.rebuildHome()
-	a.saveSettings()
+	for k := 0; k < 2; k++ {
+		x, y := i*2+k, j*2+k
+		if x < len(a.ruleFocus) && y < len(a.ruleFocus) {
+			a.ruleFocus[x], a.ruleFocus[y] = a.ruleFocus[y], a.ruleFocus[x]
+		}
+	}
+	a.rulesDirty = true
 }
 
 func (a *App) deleteRule(i int) {
@@ -217,9 +229,12 @@ func (a *App) deleteRule(i int) {
 	a.homeRules = append(a.homeRules[:i], a.homeRules[i+1:]...)
 	a.ruleNames = append(a.ruleNames[:i], a.ruleNames[i+1:]...)
 	a.ruleWords = append(a.ruleWords[:i], a.ruleWords[i+1:]...)
-	a.ruleFocus = nil
-	a.rebuildHome()
-	a.saveSettings()
+	// Drop only this row's focus slots. Clearing the whole slice would make
+	// bindRuleEdits rebuild every draft and discard uncommitted edits.
+	if i*2+2 <= len(a.ruleFocus) {
+		a.ruleFocus = append(a.ruleFocus[:i*2], a.ruleFocus[i*2+2:]...)
+	}
+	a.rulesDirty = true
 }
 
 func (a *App) addRule() {
@@ -229,16 +244,42 @@ func (a *App) addRule() {
 	a.ruleNames = append(a.ruleNames, "新分类")
 	a.ruleWords = append(a.ruleWords, "")
 	a.ruleFocus = append(a.ruleFocus, false, false)
-	a.saveSettings()
+	a.rulesDirty = true
 }
 
 func (a *App) resetRules() {
 	a.homeRules = defaultHomeRules()
-	a.ruleNames = nil
-	a.ruleWords = nil
-	a.ruleFocus = nil
-	a.rebuildHome()
+	// This frame still renders ruleRow, so the drafts must be usable now,
+	// not only after the next bindRuleEdits call.
+	a.resetRuleEdits()
+	a.rulesDirty = true
+}
+
+// saveRules is the only point where a rule edit takes effect. It writes the
+// settings and recomputes the home from cached facts, so saving never starts
+// a new network collection.
+func (a *App) saveRules() {
+	a.bindRuleEdits()
+	for i := range a.homeRules {
+		name := strings.TrimSpace(a.ruleNames[i])
+		if name == "" {
+			name = a.homeRules[i].Name
+		}
+		a.homeRules[i].Name = name
+		a.homeRules[i].Keywords = parseKeywords(a.ruleWords[i])
+	}
+	a.homeRules = normalizeRules(a.homeRules)
+	a.resetRuleEdits()
+	a.noteRuleSeq()
+	a.rulesDirty = false
 	a.saveSettings()
+	a.rebuildHome()
+	a.homeHits = nil
+	a.searchLookup = nil
+	a.homeSearching = false
+	a.screen = screenHome
+	a.sideSel = "home"
+	a.lastSide = "home"
 }
 
 func (a *App) nextRuleID() string {

@@ -3,3 +3,10 @@
 /dist/
 *.exe
 .DS_Store
+
+# IDE / agent tooling (local, not part of the project)
+.agents/
+.claude/
+.codebuddy/
+skills-lock.json
+CODEBUDDY.md

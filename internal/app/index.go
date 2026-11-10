@@ -24,6 +24,8 @@ const (
 	indexMaxDepth      = 2
 	indexProbeCats     = 3
 	homeRailLimit      = 12
+	cacheCatLimit      = 16
+	cacheItemLimit     = 16
 )
 
 func (a *App) beginLoad() (context.Context, int) {
@@ -86,6 +88,10 @@ func (a *App) expandIndex(entries []config.NamedURL) {
 				return
 			}
 			a.cfg = merged
+			if c := a.readCache(a.cfgRef); c != nil {
+				a.restoreFromCache(c, opened)
+				return
+			}
 			a.catalog = &source.Catalog{Parses: opened.Parses}
 			a.keepWorking(ctx, opened)
 		})
@@ -172,11 +178,14 @@ func (a *App) keepWorking(ctx context.Context, full *source.Catalog) {
 	for id := range a.hidden {
 		skipped[id] = true
 	}
-	rules := cloneRules(a.activeRules())
+	ref := a.cfgRef
 	go func() {
 		okSite := make([]bool, len(sites))
 		okLive := make([]bool, len(lives))
 		var mu sync.Mutex
+		var cacheMu sync.Mutex
+		var cacheSites []cacheSite
+		var cacheLives []string
 		var checked atomic.Int32
 		publish := func() {
 			mu.Lock()
@@ -257,8 +266,25 @@ func (a *App) keepWorking(ctx context.Context, full *source.Catalog) {
 						}
 					} else {
 						bctx, bcancel := context.WithTimeout(ctx, 20*time.Second)
-						got = collectBallots(bctx, s, rules)
+						cats := collectSource(bctx, s)
 						bcancel()
+						if len(cats) > 0 {
+							voter := voterFor(m)
+							cacheMu.Lock()
+							cacheSites = append(cacheSites, cacheSite{Key: m.Key, Name: m.Name, Voter: voter, Cats: cats})
+							cacheMu.Unlock()
+							for _, cat := range cats {
+								for _, it := range cat.Items {
+									if !usableTitle(it.Title) {
+										continue
+									}
+									got = append(got, ballot{
+										SiteKey: m.Key, SiteName: m.Name, Voter: voter,
+										Cat: cat.Name, Item: it,
+									})
+								}
+							}
+						}
 					}
 					if len(got) > 0 {
 						got := got
@@ -297,11 +323,19 @@ func (a *App) keepWorking(ctx context.Context, full *source.Catalog) {
 					mu.Lock()
 					okLive[i] = true
 					mu.Unlock()
+					cacheMu.Lock()
+					cacheLives = append(cacheLives, lv.URL)
+					cacheMu.Unlock()
 				}
 				publish()
 			}(i, lv)
 		}
 		wg.Wait()
+		// Only a complete pass is worth persisting; a cancelled load should be
+		// collected again next time instead of caching a partial result.
+		if ctx.Err() == nil && (len(cacheSites) > 0 || len(cacheLives) > 0) {
+			a.writeCache(&cacheData{Ref: ref, Sites: cacheSites, Lives: cacheLives})
+		}
 		a.post(func() {
 			if ctx.Err() != nil {
 				return
@@ -419,4 +453,71 @@ func sourceSample(ctx context.Context, s source.Source) (model.Page, bool) {
 	}
 	wg.Wait()
 	return hit, found
+}
+
+// collectSource records every usable category of a source, not just the ones
+// the current homepage rules happen to match. New rule keywords can then be
+// applied to the cached facts without another network pass.
+func collectSource(ctx context.Context, s source.Source) []cacheCat {
+	cats, err := s.Categories(ctx)
+	if err != nil || len(cats) == 0 {
+		return nil
+	}
+	picks := make([]model.Category, 0, cacheCatLimit)
+	for _, cat := range cats {
+		name := strings.TrimSpace(cat.Name)
+		if !usableTitle(name) || junkCategory(name) {
+			continue
+		}
+		picks = append(picks, cat)
+		if len(picks) >= cacheCatLimit {
+			break
+		}
+	}
+	out := make([]cacheCat, len(picks))
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 4)
+	for i, cat := range picks {
+		wg.Add(1)
+		go func(i int, cat model.Category) {
+			defer wg.Done()
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-ctx.Done():
+				return
+			}
+			page, err := s.List(ctx, cat.ID, 1)
+			if err != nil || len(page.Items) == 0 {
+				return
+			}
+			items := page.Items
+			if len(items) > cacheItemLimit {
+				items = items[:cacheItemLimit]
+			}
+			out[i] = cacheCat{Name: strings.TrimSpace(cat.Name), Items: items}
+		}(i, cat)
+	}
+	wg.Wait()
+	var kept []cacheCat
+	for _, cat := range out {
+		if len(cat.Items) > 0 {
+			kept = append(kept, cat)
+		}
+	}
+	return kept
+}
+
+// recollect is the manual refresh: discard the cache and run one fresh
+// collection pass over the current subscription.
+func (a *App) recollect() {
+	if a.cfg == nil {
+		return
+	}
+	a.clearCache()
+	a.ballots = nil
+	a.home = nil
+	full := source.Open(a.cfg)
+	a.catalog = &source.Catalog{Parses: full.Parses, Index: full.Index}
+	a.keepWorking(a.loadCtxOrBackground(), full)
 }

@@ -137,6 +137,7 @@ type App struct {
 	ruleWords     []string
 	ruleFocus     []bool
 	ruleSeq       int
+	rulesDirty    bool
 	home          []homeLane
 	homeHits      []homeLane
 	homeSearching bool
@@ -239,15 +240,19 @@ func (a *App) Load(ref string) {
 	}()
 }
 
-// LoadSaved restores the last subscription, if the user saved one.
-func (a *App) LoadSaved() {
+// RestoreSettings applies saved preferences (player choice, theme, volume,
+// hidden sources and homepage rules) without loading a subscription. It
+// returns the last subscription address so the caller decides what to open.
+// It must run on every start, including starts with an explicit --config,
+// otherwise saved homepage rules silently fall back to defaults.
+func (a *App) RestoreSettings() string {
 	b, err := os.ReadFile(a.settingsPath)
 	if err != nil {
-		return
+		return ""
 	}
 	var s savedSettings
 	if json.Unmarshal(b, &s) != nil {
-		return
+		return ""
 	}
 	a.preferExternal = s.PreferExternal
 	a.light = s.Light
@@ -259,7 +264,7 @@ func (a *App) LoadSaved() {
 	}
 	if len(s.HomeRules) > 0 {
 		a.homeRules = normalizeRules(s.HomeRules)
-		a.ruleNames, a.ruleWords, a.ruleFocus = nil, nil, nil
+		a.resetRuleEdits()
 		a.noteRuleSeq()
 	}
 	if s.Volume != nil {
@@ -267,8 +272,13 @@ func (a *App) LoadSaved() {
 		a.savedVolume = a.volume
 		a.appliedVolume = a.volume
 	}
-	if strings.TrimSpace(s.Config) != "" {
-		a.Load(s.Config)
+	return strings.TrimSpace(s.Config)
+}
+
+// LoadSaved restores the last subscription, if the user saved one.
+func (a *App) LoadSaved() {
+	if ref := a.RestoreSettings(); ref != "" {
+		a.Load(ref)
 	}
 }
 
@@ -294,6 +304,10 @@ func (a *App) apply(cfg *config.Config, ref string) {
 		return
 	}
 	full := a.catalog
+	if c := a.readCache(ref); c != nil {
+		a.restoreFromCache(c, full)
+		return
+	}
 	a.catalog = &source.Catalog{Parses: full.Parses, Index: full.Index}
 	a.keepWorking(a.loadCtxOrBackground(), full)
 }

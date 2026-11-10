@@ -595,58 +595,6 @@ func usableTitle(s string) bool {
 	return letter && n >= 2
 }
 
-func collectBallots(ctx context.Context, s source.Source, rules []homeRule) []ballot {
-	cats, err := s.Categories(ctx)
-	if err != nil || len(cats) == 0 || s.Meta().Key == "" {
-		return nil
-	}
-	m := s.Meta()
-	picks := selectBallotCatsRules(cats, rules)
-	if len(picks) == 0 {
-		return nil
-	}
-	voter := voterFor(m)
-	got := make([][]model.Item, len(picks))
-	var wg sync.WaitGroup
-	sem := make(chan struct{}, 4)
-	for i, p := range picks {
-		wg.Add(1)
-		go func(i int, p catPick) {
-			defer wg.Done()
-			select {
-			case sem <- struct{}{}:
-				defer func() { <-sem }()
-			case <-ctx.Done():
-				return
-			}
-			page, err := s.List(ctx, p.cat.ID, 1)
-			if err != nil || len(page.Items) == 0 {
-				return
-			}
-			items := page.Items
-			if len(items) > 16 {
-				items = items[:16]
-			}
-			got[i] = items
-		}(i, p)
-	}
-	wg.Wait()
-	var out []ballot
-	for i, p := range picks {
-		for _, bucket := range p.buckets {
-			for _, it := range got[i] {
-				if !usableTitle(it.Title) {
-					continue
-				}
-				out = append(out, ballot{
-					SiteKey: m.Key, SiteName: m.Name, Bucket: bucket, Voter: voter, Cat: p.cat.Name, Item: it,
-				})
-			}
-		}
-	}
-	return out
-}
-
 func (a *App) pickOffer(i int) {
 	if i < 0 || i >= len(a.offers) {
 		return
