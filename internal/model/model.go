@@ -62,6 +62,8 @@ type Detail struct {
 	Year     string
 	Area     string
 	TypeName string
+	Director string
+	Actors   string
 	Content  string
 	Lines    []Line
 }

@@ -38,6 +38,9 @@ const (
 	screenLive        = "live"
 	screenUnsupported = "unsupported"
 	screenEmpty       = "empty"
+	screenHome        = "home"
+	screenHistory     = "history"
+	screenFav         = "fav"
 )
 
 // App is the window state. Methods that change it run on the UI thread,
@@ -81,13 +84,22 @@ type App struct {
 
 	channels    []live.Channel
 	liveIndex   int
+	liveGroup   string
 	liveErr     string
 	liveLoading bool
 
 	preferExternal bool
 	light          bool
 	volume         float64
+	rate           float64
 	linePick       int
+	playLine       string
+	playIndex      int
+	resumeAt       float64
+	showDrawer     bool
+	showRates      bool
+	controlsUntil  time.Time
+	lib            *library
 
 	grid     ui.GridState
 	selected int
@@ -114,6 +126,8 @@ func New() *App {
 	a := &App{
 		screen:       screenWelcome,
 		volume:       1,
+		rate:         1,
+		lib:          loadLibrary(filepath.Dir(settingsPath())),
 		selected:     -1,
 		posters:      map[string]*ui.Bitmap{},
 		fetching:     map[string]bool{},
@@ -218,6 +232,9 @@ func (a *App) apply(cfg *config.Config, ref string) {
 	for _, s := range a.catalog.Sites {
 		if s.Meta().Level != config.LevelNo {
 			a.selectSite(s.Meta().Key)
+			a.screen = screenHome
+			a.sideSel = "home"
+			a.lastSide = "home"
 			return
 		}
 	}
@@ -234,6 +251,15 @@ func (a *App) onSide() {
 	}
 	a.lastSide = a.sideSel
 	switch {
+	case a.sideSel == "home":
+		a.screen = screenHome
+		a.closePlayer()
+	case a.sideSel == "history":
+		a.screen = screenHistory
+		a.closePlayer()
+	case a.sideSel == "fav":
+		a.screen = screenFav
+		a.closePlayer()
 	case strings.HasPrefix(a.sideSel, "site:"):
 		a.selectSite(strings.TrimPrefix(a.sideSel, "site:"))
 	case strings.HasPrefix(a.sideSel, "live:"):
@@ -385,6 +411,10 @@ func (a *App) playEpisode(line string, ep model.Episode) {
 	a.playNote = ""
 	a.playTitle = ep.Name
 	a.fromLive = false
+	a.playLine = line
+	a.playIndex = episodeIndex(a.detail, line, ep)
+	a.showDrawer = false
+	a.showRates = false
 	a.closePlayer()
 	key := a.siteKey
 	parses := []config.ParseItem(nil)
@@ -422,7 +452,11 @@ func (a *App) playEpisode(line string, ep model.Episode) {
 }
 
 func (a *App) playChannel(ch live.Channel) {
+	a.playLine = ch.Group
+	a.playTitle = ch.Name
 	a.startPlay(ch.Name, ch.URL, map[string]string{"User-Agent": httpx.TVBoxUA}, true)
+	a.screen = screenLive
+	a.fromLive = true
 }
 
 func (a *App) startPlay(title, raw string, headers map[string]string, fromLive bool) {
@@ -462,8 +496,14 @@ func (a *App) startPlay(title, raw string, headers map[string]string, fromLive b
 		return
 	}
 	p.SetVolume(a.volume)
+	if a.rate <= 0 {
+		a.rate = 1
+	}
+	p.SetRate(a.rate)
 	a.player = p
 	a.playNote = strings.Join(notes, " ")
+	a.controlsUntil = time.Now().Add(4 * time.Second)
+	a.rememberCurrent(raw)
 }
 
 func (a *App) openExternal() {
