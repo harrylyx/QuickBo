@@ -88,6 +88,39 @@ func TestBrowseShowsPosterCard(t *testing.T) {
 	}
 }
 
+func TestDetailCanSortOffersByClarityOrDelay(t *testing.T) {
+	a := New()
+	a.settingsPath = ""
+	a.catalog = &source.Catalog{}
+	a.screen = screenDetail
+	a.detailTitle = "庆余年"
+	a.stats = map[string]sourceStat{"slow": {Delay: 800}, "fast": {Delay: 40}}
+	a.offers = []playOffer{
+		{SiteKey: "slow", SiteName: "慢源", Clarity: 50},
+		{SiteKey: "fast", SiteName: "快源", Clarity: 10},
+	}
+	a.sortOffers()
+	tt := ui.NewTester(a.View, 1200, 800)
+	if !tt.HasText("清晰度") || !tt.HasText("延迟") || !tt.HasText("快源") {
+		t.Fatalf("texts %q", tt.Texts())
+	}
+	if a.offers[0].SiteKey != "fast" {
+		t.Fatalf("default order %s", a.offers[0].SiteKey)
+	}
+	if err := tt.Click("清晰度"); err != nil {
+		t.Fatal(err)
+	}
+	if a.offerBy != offerByClarity || a.offers[0].SiteKey != "slow" {
+		t.Fatalf("clarity order %s by %s", a.offers[0].SiteKey, a.offerBy)
+	}
+	if err := tt.Click("延迟"); err != nil {
+		t.Fatal(err)
+	}
+	if a.offerBy != offerByDelay || a.offers[0].SiteKey != "fast" {
+		t.Fatalf("delay order %s by %s", a.offers[0].SiteKey, a.offerBy)
+	}
+}
+
 type deadFake struct{}
 
 func (deadFake) Meta() source.Meta {

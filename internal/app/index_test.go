@@ -151,7 +151,7 @@ func TestLoadIndexHidesEmptyAndFailed(t *testing.T) {
 	if a.screen != screenHome || a.sideSel != "home" || a.siteKey != "" {
 		t.Fatalf("screen %s side %s site %s", a.screen, a.sideSel, a.siteKey)
 	}
-	if len(a.home) != 1 || a.home[0].Name != "可用" || a.home[0].Items[0].Title != "有结果" {
+	if len(a.home) != 1 || a.home[0].Name != "最热影视" || a.home[0].Items[0].Title != "有结果" {
 		t.Fatalf("home %+v", a.home)
 	}
 }

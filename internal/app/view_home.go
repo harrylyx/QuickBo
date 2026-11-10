@@ -77,6 +77,10 @@ func (a *App) homeRail(c *ui.Context, th *ui.Theme, lane homeLane) {
 func (a *App) railCard(c *ui.Context, th *ui.Theme, siteKey string, item model.Item) {
 	const w, h float32 = 132, 198
 	open := func() {
+		if strings.HasPrefix(item.ID, titlePrefix) {
+			a.openTitle(strings.TrimPrefix(item.ID, titlePrefix))
+			return
+		}
 		a.siteKey = siteKey
 		a.openDetail(item)
 	}

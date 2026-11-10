@@ -69,7 +69,19 @@ func (a *App) dropSite(key string) {
 		a.hidden = map[string]bool{}
 	}
 	a.hidden[sourceHideID(gone)] = true
-	a.home = withoutLane(a.home, key)
+	before := len(a.ballots)
+	keptBallots := make([]ballot, 0, len(a.ballots))
+	for _, b := range a.ballots {
+		if b.SiteKey != key {
+			keptBallots = append(keptBallots, b)
+		}
+	}
+	a.ballots = keptBallots
+	if len(a.ballots) != before {
+		a.rebuildHome()
+	} else {
+		a.home = withoutLane(a.home, key)
+	}
 	a.homeHits = withoutLane(a.homeHits, key)
 	if a.siteKey == key {
 		a.siteKey = ""
@@ -134,12 +146,13 @@ func (a *App) searchHome() {
 	sites := append([]source.Source(nil), a.catalog.Sites...)
 	gen := a.bump()
 	go func() {
-		hits := make([]homeLane, len(sites))
+		var mu sync.Mutex
+		var found []ballot
 		var wg sync.WaitGroup
 		sem := make(chan struct{}, indexProbeParallel)
-		for i, s := range sites {
+		for _, s := range sites {
 			wg.Add(1)
-			go func(i int, s source.Source) {
+			go func(s source.Source) {
 				defer wg.Done()
 				sem <- struct{}{}
 				defer func() { <-sem }()
@@ -149,40 +162,28 @@ func (a *App) searchHome() {
 				if err != nil || len(page.Items) == 0 {
 					return
 				}
-				items := page.Items
-				if len(items) > homeRailLimit {
-					items = items[:homeRailLimit]
-				}
 				m := s.Meta()
-				hits[i] = homeLane{Key: m.Key, Name: m.Name, Items: items}
-			}(i, s)
+				mu.Lock()
+				for _, it := range page.Items {
+					found = append(found, ballot{SiteKey: m.Key, SiteName: m.Name, Bucket: "hot", Item: it})
+				}
+				mu.Unlock()
+			}(s)
 		}
 		wg.Wait()
 		a.post(func() {
 			if a.gen != gen {
 				return
 			}
-			lanes := make([]homeLane, 0, len(hits))
-			for _, lane := range hits {
-				if lane.Key == "" {
-					continue
-				}
-				if src := findSource(sites, lane.Key); src != nil && a.hidden[sourceHideID(src)] {
-					continue
-				}
-				lanes = append(lanes, lane)
+			lane, part := votedLane("search", "搜索结果", found)
+			if len(lane.Items) == 0 {
+				a.homeHits = nil
+				a.searchLookup = nil
+			} else {
+				a.homeHits = []homeLane{lane}
+				a.searchLookup = part
 			}
-			a.homeHits = lanes
 			a.homeSearching = false
 		})
 	}()
-}
-
-func findSource(sites []source.Source, key string) source.Source {
-	for _, s := range sites {
-		if s.Meta().Key == key {
-			return s
-		}
-	}
-	return nil
 }

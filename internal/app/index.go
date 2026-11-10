@@ -172,26 +172,21 @@ func (a *App) keepWorking(ctx context.Context, full *source.Catalog) {
 	for id := range a.hidden {
 		skipped[id] = true
 	}
+	rules := cloneRules(a.activeRules())
 	go func() {
 		okSite := make([]bool, len(sites))
-		pages := make([]model.Page, len(sites))
 		okLive := make([]bool, len(lives))
 		var mu sync.Mutex
 		var checked atomic.Int32
 		publish := func() {
 			mu.Lock()
 			type kept struct {
-				src   source.Source
-				items []model.Item
+				src source.Source
 			}
 			got := make([]kept, 0, len(sites))
 			for i, s := range sites {
 				if okSite[i] {
-					items := pages[i].Items
-					if len(items) > homeRailLimit {
-						items = append([]model.Item(nil), items[:homeRailLimit]...)
-					}
-					got = append(got, kept{src: s, items: items})
+					got = append(got, kept{src: s})
 				}
 			}
 			liveSnap := make([]*source.LiveEntry, 0, len(lives))
@@ -207,13 +202,10 @@ func (a *App) keepWorking(ctx context.Context, full *source.Catalog) {
 					return
 				}
 				siteSnap := make([]source.Source, 0, len(got))
-				lanes := make([]homeLane, 0, len(got))
 				for _, g := range got {
 					if a.hidden[sourceHideID(g.src)] {
 						continue
 					}
-					m := g.src.Meta()
-					lanes = append(lanes, homeLane{Key: m.Key, Name: m.Name, Items: g.items})
 					siteSnap = append(siteSnap, g.src)
 				}
 				shownLive := liveSnap[:0]
@@ -229,7 +221,6 @@ func (a *App) keepWorking(ctx context.Context, full *source.Catalog) {
 				}
 				a.catalog.Sites = siteSnap
 				a.catalog.Lives = shownLive
-				a.home = lanes
 				a.loadNote = fmt.Sprintf("正在检查源 %d/%d，可用 %d", n, total, len(siteSnap)+len(shownLive))
 			})
 		}
@@ -256,10 +247,32 @@ func (a *App) keepWorking(ctx context.Context, full *source.Catalog) {
 				if ok {
 					mu.Lock()
 					okSite[i] = true
-					pages[i] = page
 					mu.Unlock()
+					publish()
+					m := s.Meta()
+					var got []ballot
+					if a.probeSite != nil {
+						for _, it := range page.Items {
+							got = append(got, ballot{SiteKey: m.Key, SiteName: m.Name, Bucket: "hot", Item: it})
+						}
+					} else {
+						bctx, bcancel := context.WithTimeout(ctx, 20*time.Second)
+						got = collectBallots(bctx, s, rules)
+						bcancel()
+					}
+					if len(got) > 0 {
+						got := got
+						key := m.Key
+						a.post(func() {
+							if ctx.Err() != nil {
+								return
+							}
+							a.mergeBallots(key, got)
+						})
+					}
+				} else {
+					publish()
 				}
-				publish()
 			}(i, s)
 		}
 		for i, lv := range lives {

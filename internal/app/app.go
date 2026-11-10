@@ -43,6 +43,8 @@ const (
 	screenHome        = "home"
 	screenHistory     = "history"
 	screenFav         = "fav"
+	screenSources     = "sources"
+	screenRules       = "rules"
 )
 
 // App is the window state. Methods that change it run on the UI thread,
@@ -130,20 +132,33 @@ type App struct {
 	fetching      map[string]bool
 	failed        map[string]bool
 	hidden        map[string]bool
+	homeRules     []homeRule
+	ruleNames     []string
+	ruleWords     []string
+	ruleFocus     []bool
+	ruleSeq       int
 	home          []homeLane
 	homeHits      []homeLane
 	homeSearching bool
+	ballots       []ballot
+	lookup        map[string][]titleHit
+	searchLookup  map[string][]titleHit
+	offers        []playOffer
+	offerPick     int
+	offerBy       string
+	stats         map[string]sourceStat
 
 	gen          int
 	settingsPath string
 }
 
 type savedSettings struct {
-	Config         string   `json:"config"`
-	PreferExternal bool     `json:"preferExternal"`
-	Light          bool     `json:"light,omitempty"`
-	Volume         *float64 `json:"volume,omitempty"`
-	Hidden         []string `json:"hidden,omitempty"`
+	Config         string     `json:"config"`
+	PreferExternal bool       `json:"preferExternal"`
+	Light          bool       `json:"light,omitempty"`
+	Volume         *float64   `json:"volume,omitempty"`
+	Hidden         []string   `json:"hidden,omitempty"`
+	HomeRules      []homeRule `json:"homeRules,omitempty"`
 }
 
 // New returns an empty shell. No subscription is loaded until the user
@@ -161,6 +176,9 @@ func New() *App {
 		fetching:      map[string]bool{},
 		failed:        map[string]bool{},
 		hidden:        map[string]bool{},
+		homeRules:     defaultHomeRules(),
+		lookup:        map[string][]titleHit{},
+		stats:         map[string]sourceStat{},
 		settingsPath:  settingsPath(),
 	}
 	a.grid.Selected = &a.selected
@@ -240,6 +258,11 @@ func (a *App) LoadSaved() {
 			a.hidden[id] = true
 		}
 	}
+	if len(s.HomeRules) > 0 {
+		a.homeRules = normalizeRules(s.HomeRules)
+		a.ruleNames, a.ruleWords, a.ruleFocus = nil, nil, nil
+		a.noteRuleSeq()
+	}
 	if s.Volume != nil {
 		a.volume = *s.Volume
 		a.savedVolume = a.volume
@@ -298,6 +321,16 @@ func (a *App) onSide() {
 		a.query = ""
 		a.committed = ""
 		a.screen = screenFav
+		a.closePlayer()
+	case a.sideSel == "sources":
+		a.query = ""
+		a.committed = ""
+		a.screen = screenSources
+		a.closePlayer()
+	case a.sideSel == "rules":
+		a.query = ""
+		a.committed = ""
+		a.screen = screenRules
 		a.closePlayer()
 	case strings.HasPrefix(a.sideSel, "site:"):
 		a.selectSite(strings.TrimPrefix(a.sideSel, "site:"))
@@ -478,6 +511,7 @@ func (a *App) openDetail(item model.Item) {
 		return
 	}
 	a.screen = screenDetail
+	a.offers = nil
 	a.detail = nil
 	a.detailTitle = item.Title
 	a.detailErr = ""
@@ -861,7 +895,8 @@ func (a *App) saveSettings() {
 	vol := a.volume
 	s := savedSettings{
 		Config: a.cfgRef, PreferExternal: a.preferExternal, Light: a.light, Volume: &vol,
-		Hidden: hiddenIDs(a.hidden),
+		Hidden:    hiddenIDs(a.hidden),
+		HomeRules: cloneRules(a.homeRules),
 	}
 	b, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {

@@ -51,6 +51,10 @@ func (a *App) View(c *ui.Context) {
 							a.viewHistory(c, th)
 						case screenFav:
 							a.viewFavs(c, th)
+						case screenSources:
+							a.viewSources(c, th)
+						case screenRules:
+							a.viewRules(c, th)
 						case screenIndex:
 							a.viewIndex(c, th)
 						case screenUnsupported:
@@ -168,6 +172,8 @@ func (a *App) viewSidebar(c *ui.Context, th *ui.Theme) {
 				ui.SidebarItem(c, "home", iconHome, "首页")
 				ui.SidebarItem(c, "history", iconClock, "历史")
 				ui.SidebarItem(c, "fav", iconHeart, "收藏")
+				ui.SidebarItem(c, "sources", iconSignal, "片源")
+				ui.SidebarItem(c, "rules", iconList, "分类")
 			})
 			if a.catalog != nil && len(a.catalog.Sites) > 0 {
 				ui.SidebarSection(c, "点播", nil, func() {
@@ -289,6 +295,10 @@ func (a *App) crumb() string {
 		return "资料库"
 	case screenFav:
 		return "资料库"
+	case screenSources:
+		return "片源"
+	case screenRules:
+		return "分类"
 	case screenDetail:
 		return "详情"
 	case screenPlay:
@@ -315,6 +325,14 @@ func (a *App) headline() string {
 		return "观看历史"
 	case screenFav:
 		return "我的收藏"
+	case screenSources:
+		return "片源"
+	case screenRules:
+		return "首页分类"
+	case screenDetail:
+		if a.detailTitle != "" {
+			return a.detailTitle
+		}
 	}
 	if a.screen == screenLive && a.catalog != nil && a.liveIndex >= 0 && a.liveIndex < len(a.catalog.Lives) {
 		return a.catalog.Lives[a.liveIndex].Name
@@ -635,7 +653,13 @@ func (a *App) viewDetail(c *ui.Context, th *ui.Theme) {
 					}
 				})
 			})
+			if len(a.offers) > 0 {
+				a.viewOffers(c, th)
+			}
 			if d == nil {
+				if a.detailLoading {
+					a.loadingRow(c, th, "正在读取各片源的线路…")
+				}
 				return
 			}
 			if len(d.Lines) == 0 {
