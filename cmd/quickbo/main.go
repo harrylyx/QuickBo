@@ -27,11 +27,11 @@ func main() {
 			Content:   ui.View(application.View),
 		})
 		application.Attach(win)
-		saved := application.RestoreSettings()
+		application.RestoreSettings()
 		if *ref != "" {
-			application.Load(*ref)
-		} else if saved != "" {
-			application.Load(saved)
+			application.AddSubscription(*ref)
+		} else {
+			application.LoadSaved()
 		}
 	})
 	if err := mygo.App.Run(); err != nil {

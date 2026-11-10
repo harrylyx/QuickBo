@@ -114,14 +114,60 @@ func (a *App) viewWelcome(c *ui.Context, th *ui.Theme) {
 
 func (a *App) viewAdd(c *ui.Context, th *ui.Theme) {
 	ui.Modal(c, &a.adding, func() {
-		ui.Column(c).Width(460).Gap(16).Children(func() {
-			ui.Text(c, "配置").FontSize(20).Bold()
-			ui.Text(c, "TVBox / FongMi 订阅的 URL，或本机 JSON。QuickBo 不内置任何片源。").TextColor(th.TextMuted).Wrap()
+		ui.Column(c).Width(520).Gap(16).Children(func() {
+			ui.Text(c, "订阅").FontSize(20).Bold()
+			ui.Text(c, "TVBox / FongMi 订阅的 URL，或本机 JSON。可以添加多份，源会合并在一起；停用或删除后立即重新加载。").TextColor(th.TextMuted).Wrap()
+			ui.Text(c, "订阅列表").FontSize(13).TextColor(th.TextMuted)
+			stop := false
+			ui.Scroll(c).FillWidth().Height(220).Children(func() {
+				ui.Column(c).FillWidth().Gap(8).Children(func() {
+					if len(a.subs) == 0 {
+						ui.Text(c, "还没有订阅").TextColor(th.TextMuted)
+						return
+					}
+					for i := range a.subs {
+						sub := a.subs[i]
+						ref := sub.Ref
+						ui.Row(c.Key("sub:"+ref)).FillWidth().Padding(10, 12).Radius(8).Background(th.Surface).AlignItems(ui.Center).Gap(8).Children(func() {
+							ui.Column(c).Grow(1).Gap(2).Shrink(1).Children(func() {
+								ui.Text(c, sub.Name).FontSize(14).SingleLine()
+								ui.Text(c, ref).FontSize(11).TextColor(th.TextMuted).SingleLine()
+								if !sub.Enabled {
+									ui.Text(c, "已停用").FontSize(11).TextColor(th.TextMuted)
+								}
+							})
+							label := "停用"
+							if !sub.Enabled {
+								label = "启用"
+							}
+							if ui.Button(c.Key("sub-toggle:"+ref), label).Clicked() {
+								a.toggleSubscription(ref)
+								stop = true
+								return
+							}
+							if ui.Button(c.Key("sub-drop:"+ref), "删除").Clicked() {
+								a.removeSubscription(ref)
+								stop = true
+								return
+							}
+						})
+						if stop {
+							return
+						}
+					}
+				})
+			})
+			if stop {
+				return
+			}
 			ui.Text(c, "配置 URL").FontSize(13).TextColor(th.TextMuted)
 			field := ui.TextInput(c, &a.urlDraft).Placeholder("https://example.com/tvbox.json").Label("配置 URL")
 			if field.Submitted() {
+				ref := a.urlDraft
+				a.urlDraft = ""
 				a.adding = false
-				a.Load(a.urlDraft)
+				a.AddSubscription(ref)
+				return
 			}
 			ui.Text(c, "外观").FontSize(13).TextColor(th.TextMuted)
 			ui.Row(c).Gap(8).Children(func() {
@@ -147,9 +193,12 @@ func (a *App) viewAdd(c *ui.Context, th *ui.Theme) {
 				if ui.Button(c, "打开文件").Clicked() {
 					a.pickFile()
 				}
-				if ui.PrimaryButton(c, "加载").Clicked() {
+				if ui.PrimaryButton(c, "添加订阅").Clicked() {
+					ref := a.urlDraft
+					a.urlDraft = ""
 					a.adding = false
-					a.Load(a.urlDraft)
+					a.AddSubscription(ref)
+					return
 				}
 			})
 		})
@@ -175,9 +224,10 @@ func (a *App) viewSidebar(c *ui.Context, th *ui.Theme) {
 				ui.SidebarItem(c, "sources", iconSignal, "片源")
 				ui.SidebarItem(c, "rules", iconList, "分类")
 			})
-			if a.catalog != nil && len(a.catalog.Sites) > 0 {
-				ui.SidebarSection(c, "点播", nil, func() {
-					for _, s := range a.catalog.Sites {
+			for _, g := range a.sideGroups() {
+				g := g
+				ui.SidebarSection(c, g.name, nil, func() {
+					for _, s := range g.sites {
 						m := s.Meta()
 						key := m.Key
 						item := ui.SidebarItem(c, "site:"+key, iconScreen, m.Name)
@@ -192,13 +242,9 @@ func (a *App) viewSidebar(c *ui.Context, th *ui.Theme) {
 							})
 						})
 					}
-				})
-			}
-			if a.catalog != nil && len(a.catalog.Lives) > 0 {
-				ui.SidebarSection(c, "直播", nil, func() {
-					for i, lv := range a.catalog.Lives {
-						lv := lv
-						item := ui.SidebarItem(c, fmt.Sprintf("live:%d", i), iconSignal, lv.Name)
+					for _, li := range g.lives {
+						lv, idx := li.entry, li.idx
+						item := ui.SidebarItem(c, fmt.Sprintf("live:%d", idx), iconSignal, lv.Name)
 						item.ContextMenu(func(menu *ui.Menu) {
 							if menu.Item("删除").Chosen() {
 								a.dropLive(lv.URL)
@@ -267,7 +313,7 @@ func (a *App) viewTop(c *ui.Context, th *ui.Theme) {
 			}
 		}
 		if ui.Button(c, "配置").Clicked() {
-			a.urlDraft = a.cfgRef
+			a.urlDraft = ""
 			a.adding = true
 		}
 	})

@@ -12,6 +12,7 @@
 - 点播：源切换、分类、海报墙、搜索、详情、剧集、播放。
 - 直播：订阅里的 M3U /「名称,地址」TXT（含 `#genre#` 分组）。
 - 仓库索引（`urls` / `storeHouse`）可以点进去继续加载下一层配置。
+- 可以同时保存多份订阅地址：在「配置」里添加、停用或删除，侧栏按订阅分组，源合并到同一个首页。
 
 ## 源类型
 
@@ -49,7 +50,7 @@ CGO_ENABLED=0 go build -o quickbo ./cmd/quickbo
 ./quickbo
 ```
 
-也可以直接打开一份配置：
+也可以在启动时添加一份配置（会并入已保存的订阅列表）：
 
 ```bash
 ./quickbo --config https://example.com/tvbox.json
@@ -64,7 +65,7 @@ CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -o quickbo ./cmd/quickbo
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o quickbo ./cmd/quickbo
 ```
 
-上次用过的配置记在用户配置目录的 `quickbo/settings.json`，下次启动会自动打开。删掉这个文件就回到空壳。
+订阅列表和偏好记在用户配置目录的 `quickbo/settings.json`，下次启动会加载全部启用的订阅。首次采集的资源缓存在同目录的 `cache.json`；修改首页分类规则后点「保存」只用缓存重算，点「重新采集」才会更新片源内容。删掉 `settings.json` 就回到空壳。
 
 ## 参考与许可
 

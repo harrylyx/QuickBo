@@ -52,9 +52,13 @@ const (
 type App struct {
 	win *mygo.Window
 
-	cfg      *config.Config
-	catalog  *source.Catalog
+	cfg     *config.Config
+	catalog *source.Catalog
+	// cfgRef is the cache identity of the current load: a single ref, or the
+	// newline-joined enabled refs when several subscriptions are active.
 	cfgRef   string
+	subs     []subscription
+	groupOf  map[string]string
 	loading  bool
 	loadErr  string
 	loadNote string
@@ -153,12 +157,13 @@ type App struct {
 }
 
 type savedSettings struct {
-	Config         string     `json:"config"`
-	PreferExternal bool       `json:"preferExternal"`
-	Light          bool       `json:"light,omitempty"`
-	Volume         *float64   `json:"volume,omitempty"`
-	Hidden         []string   `json:"hidden,omitempty"`
-	HomeRules      []homeRule `json:"homeRules,omitempty"`
+	Config         string         `json:"config,omitempty"`
+	Subs           []subscription `json:"subs,omitempty"`
+	PreferExternal bool           `json:"preferExternal"`
+	Light          bool           `json:"light,omitempty"`
+	Volume         *float64       `json:"volume,omitempty"`
+	Hidden         []string       `json:"hidden,omitempty"`
+	HomeRules      []homeRule     `json:"homeRules,omitempty"`
 }
 
 // New returns an empty shell. No subscription is loaded until the user
@@ -210,13 +215,15 @@ func New() *App {
 // Attach binds the window that receives async updates.
 func (a *App) Attach(win *mygo.Window) { a.win = win }
 
-// Load fetches a subscription from a URL or a local path.
+// Load fetches one subscription from a URL or a local path. The subscription
+// list uses LoadSubs to load several at once.
 func (a *App) Load(ref string) {
 	ref = strings.TrimSpace(ref)
 	if ref == "" {
 		a.loadErr = "请输入配置地址"
 		return
 	}
+	a.groupOf = nil
 	a.loading = true
 	a.loadErr = ""
 	a.loadNote = ""
@@ -241,18 +248,18 @@ func (a *App) Load(ref string) {
 }
 
 // RestoreSettings applies saved preferences (player choice, theme, volume,
-// hidden sources and homepage rules) without loading a subscription. It
-// returns the last subscription address so the caller decides what to open.
-// It must run on every start, including starts with an explicit --config,
-// otherwise saved homepage rules silently fall back to defaults.
-func (a *App) RestoreSettings() string {
+// hidden sources, homepage rules and the subscription list) without loading
+// anything. It returns the enabled refs. It must run on every start, including
+// starts with an explicit --config, otherwise saved homepage rules and the
+// other subscriptions silently fall back to defaults.
+func (a *App) RestoreSettings() []string {
 	b, err := os.ReadFile(a.settingsPath)
 	if err != nil {
-		return ""
+		return nil
 	}
 	var s savedSettings
 	if json.Unmarshal(b, &s) != nil {
-		return ""
+		return nil
 	}
 	a.preferExternal = s.PreferExternal
 	a.light = s.Light
@@ -272,13 +279,31 @@ func (a *App) RestoreSettings() string {
 		a.savedVolume = a.volume
 		a.appliedVolume = a.volume
 	}
-	return strings.TrimSpace(s.Config)
+	a.subs = nil
+	for _, sub := range s.Subs {
+		ref := strings.TrimSpace(sub.Ref)
+		if ref == "" {
+			continue
+		}
+		sub.Ref = ref
+		if sub.Name == "" {
+			sub.Name = shortRef(ref)
+		}
+		a.subs = append(a.subs, sub)
+	}
+	if len(a.subs) == 0 {
+		// Settings written before the subscription list only had Config.
+		if ref := strings.TrimSpace(s.Config); ref != "" {
+			a.subs = []subscription{{Ref: ref, Name: shortRef(ref), Enabled: true}}
+		}
+	}
+	return a.activeRefs()
 }
 
-// LoadSaved restores the last subscription, if the user saved one.
+// LoadSaved loads every enabled subscription. RestoreSettings must have run.
 func (a *App) LoadSaved() {
-	if ref := a.RestoreSettings(); ref != "" {
-		a.Load(ref)
+	if refs := a.activeRefs(); len(refs) > 0 {
+		a.LoadSubs(refs)
 	}
 }
 
@@ -287,6 +312,8 @@ func (a *App) apply(cfg *config.Config, ref string) {
 	a.cfg = cfg
 	a.cfgRef = ref
 	a.catalog = source.Open(cfg)
+	// A different subscription set must not keep votes from the previous one.
+	a.ballots = nil
 	a.detail = nil
 	a.page = model.Page{}
 	a.query = ""
@@ -779,8 +806,8 @@ func (a *App) pickFile() {
 		path := paths[0]
 		a.post(func() {
 			a.adding = false
-			a.urlDraft = path
-			a.Load(path)
+			a.urlDraft = ""
+			a.AddSubscription(path)
 		})
 	}()
 }
@@ -907,7 +934,8 @@ func (a *App) saveSettings() {
 	}
 	vol := a.volume
 	s := savedSettings{
-		Config: a.cfgRef, PreferExternal: a.preferExternal, Light: a.light, Volume: &vol,
+		Config: a.primaryRef(), Subs: cloneSubs(a.subs),
+		PreferExternal: a.preferExternal, Light: a.light, Volume: &vol,
 		Hidden:    hiddenIDs(a.hidden),
 		HomeRules: cloneRules(a.homeRules),
 	}

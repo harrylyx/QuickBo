@@ -180,9 +180,9 @@ func TestRestoreSettingsWithExplicitConfig(t *testing.T) {
 	}
 	a := New()
 	a.settingsPath = path
-	ref := a.RestoreSettings()
-	if ref != "https://example.com/tvbox.json" {
-		t.Fatalf("ref %q", ref)
+	refs := a.RestoreSettings()
+	if len(refs) != 1 || refs[0] != "https://example.com/tvbox.json" {
+		t.Fatalf("refs %v", refs)
 	}
 	if len(a.homeRules) != 1 || a.homeRules[0].Name != "纪录片" {
 		t.Fatalf("rules %+v", a.homeRules)
