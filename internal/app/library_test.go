@@ -30,3 +30,19 @@ func TestLibraryWatchAndFav(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestLibraryRemovesWatchAndFav(t *testing.T) {
+	dir := t.TempDir()
+	lib := loadLibrary(dir)
+	lib.upsertWatch(watchItem{Key: "s\n1", Title: "海边的风", URL: "http://cdn/a.mp4"})
+	lib.toggleFav(favItem{Key: "s\n1", Title: "海边的风"})
+	lib.removeWatch("s\n1")
+	lib.removeFav("s\n1")
+	lib.removeWatch("missing")
+	lib.removeFav("missing")
+
+	again := loadLibrary(dir)
+	if len(again.watches()) != 0 || len(again.favs()) != 0 {
+		t.Fatalf("watch %+v favs %+v", again.watches(), again.favs())
+	}
+}

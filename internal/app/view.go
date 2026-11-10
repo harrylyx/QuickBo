@@ -17,6 +17,19 @@ const (
 	pagePad   float32 = 28
 )
 
+var cardMotion = ui.Animation{Duration: 200 * time.Millisecond, Ease: ui.EaseOut}
+
+func (a *App) animateCard(card, frame ui.Element, hot, light bool) {
+	pose := ui.Pose{}
+	if hot {
+		pose.Y = -2
+	}
+	card.AnimatePose(pose, cardMotion)
+	y, blur, ink := cardShadow(light, hot)
+	frame.Shadow(0, y, blur, 0, ink).
+		Transition(ui.ElementTransition{Duration: 200 * time.Millisecond, Ease: ui.EaseOut, Shadows: true})
+}
+
 // View draws one frame. The chrome is a cinema shell: a quiet source
 // rail, a full-bleed hero, and a poster wall. Red is reserved for the
 // primary action and for progress.
@@ -64,7 +77,9 @@ func (a *App) View(c *ui.Context) {
 						case screenLive:
 							a.viewLive(c, th)
 						case screenEmpty:
-							a.emptyState(c, th, "这份配置是空的", "没有点播站，也没有直播。换一份配置，或往里面加上站点。")
+							a.emptyState(c, th, "这份配置是空的", "没有点播站，也没有直播。换一份配置，或往里面加上站点。",
+								stateAction{label: "添加订阅", primary: true, click: a.openSubs},
+								stateAction{label: "打开本地文件", click: a.pickFile})
 						default:
 							a.viewBrowse(c, th)
 						}
@@ -73,51 +88,60 @@ func (a *App) View(c *ui.Context) {
 			})
 		})
 	}
-	a.viewAdd(c, th)
+	a.viewSubs(c, th)
+	a.viewSettings(c, th)
 }
 
 func (a *App) viewWelcome(c *ui.Context, th *ui.Theme) {
+	welcomeTransition := ui.ElementTransition{Duration: 520 * time.Millisecond, Ease: ui.EaseOut}
+	if !a.welcomeEntered {
+		welcomeTransition.Enter = &ui.Motion{Y: 16, Opacity: 0, Scale: 1}
+	}
 	ui.Box(c).Fill().Children(func() {
 		ui.Box(c).Fill().RadialGradient(ui.RadialGradient{
 			Center: ui.Point{X: 0.0, Y: 1},
 			Radius: 720,
 			Stops: []ui.GradientStop{
-				{th.Accent.Alpha(0.16), 0},
-				{ui.Transparent, 0.72},
+				{Color: th.Accent.Alpha(0.16), At: 0},
+				{Color: ui.Transparent, At: 0.72},
 			},
 		})
 		ui.Column(c).Fill().Padding(48, 72).Children(func() {
 			ui.Column(c).Grow(1)
-			ui.Column(c).Width(520).Gap(16).Children(func() {
+			ui.Column(c.Key("welcome-hero")).Width(520).Gap(16).Transition(welcomeTransition).Children(func() {
 				ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
 					ui.Box(c).Width(18).Height(2).Radius(1).Background(th.Accent)
-					ui.Text(c, "自备片源的播放器").FontSize(13).TextColor(th.TextMuted)
+					ui.Text(c, "TVBox / FongMi 播放器").FontSize(fontCaption).TextColor(th.TextMuted)
 				})
 				ui.Text(c, "QuickBo").FontSize(60).Bold()
-				ui.Text(c, "一台不带片源的播放器。").FontSize(20)
+				ui.Text(c, "添加订阅，开始播放。").FontSize(fontHeadline)
 				ui.Text(c, "不内置任何片源。把你自己的配置 URL 或本地 JSON 加进来，再浏览、搜索和播放。JSON / XML CMS、一部分 JS（drpy）和 XBPQ 规则可以直接用。JAR/DEX 爬虫会列出来，但本版不执行 jar。").TextColor(th.TextMuted).Wrap()
 				if a.loading {
 					a.loadingRow(c, th, "正在读取配置…")
 				}
 				if a.loadErr != "" {
-					a.note(c, th, a.loadErr, true)
+					a.noteWithActions(c, th, a.loadErr, true, stateAction{label: "重试订阅", primary: true, click: a.retrySubs})
 				}
 				ui.Row(c).Gap(10).Padding(8, 0, 0, 0).Children(func() {
-					if ui.PrimaryButton(c, "添加配置").Clicked() {
-						a.adding = true
+					if ui.PrimaryButton(c, "添加订阅").Clicked() {
+						a.openSubs()
+					}
+					if ui.Button(c, "打开本地文件").Clicked() {
+						a.pickFile()
 					}
 				})
 			})
 		})
 	})
+	a.welcomeEntered = true
 }
 
-func (a *App) viewAdd(c *ui.Context, th *ui.Theme) {
+func (a *App) viewSubs(c *ui.Context, th *ui.Theme) {
 	ui.Modal(c, &a.adding, func() {
 		ui.Column(c).Width(520).Gap(16).Children(func() {
-			ui.Text(c, "订阅").FontSize(20).Bold()
+			ui.Text(c, "订阅").FontSize(fontHeadline).Bold()
 			ui.Text(c, "TVBox / FongMi 订阅的 URL，或本机 JSON。可以添加多份，源会合并在一起；停用或删除后立即重新加载。").TextColor(th.TextMuted).Wrap()
-			ui.Text(c, "订阅列表").FontSize(13).TextColor(th.TextMuted)
+			ui.Text(c, "订阅列表").FontSize(fontCaption).TextColor(th.TextMuted)
 			stop := false
 			ui.Scroll(c).FillWidth().Height(220).Children(func() {
 				ui.Column(c).FillWidth().Gap(8).Children(func() {
@@ -130,26 +154,24 @@ func (a *App) viewAdd(c *ui.Context, th *ui.Theme) {
 						ref := sub.Ref
 						ui.Row(c.Key("sub:"+ref)).FillWidth().Padding(10, 12).Radius(8).Background(th.Surface).AlignItems(ui.Center).Gap(8).Children(func() {
 							ui.Column(c).Grow(1).Gap(2).Shrink(1).Children(func() {
-								ui.Text(c, sub.Name).FontSize(14).SingleLine()
-								ui.Text(c, ref).FontSize(11).TextColor(th.TextMuted).SingleLine()
+								ui.Text(c, sub.Name).FontSize(fontBody).SingleLine()
+								ui.Text(c, ref).FontSize(fontCaption).TextColor(th.TextMuted).SingleLine()
 								if !sub.Enabled {
-									ui.Text(c, "已停用").FontSize(11).TextColor(th.TextMuted)
+									ui.Text(c, "已停用").FontSize(fontCaption).TextColor(th.TextMuted)
 								}
 							})
-							label := "停用"
+							label, glyph := "停用", iconPause
 							if !sub.Enabled {
-								label = "启用"
+								label, glyph = "启用", iconPlay
 							}
-							if ui.Button(c.Key("sub-toggle:"+ref), label).Clicked() {
+							a.iconBtn(c, "sub-toggle:"+ref, glyph, label, 30, 16, th.TextMuted, func() {
 								a.toggleSubscription(ref)
 								stop = true
-								return
-							}
-							if ui.Button(c.Key("sub-drop:"+ref), "删除").Clicked() {
+							})
+							a.iconBtn(c, "sub-drop:"+ref, iconTrash, "删除订阅", 30, 16, th.Danger, func() {
 								a.removeSubscription(ref)
 								stop = true
-								return
-							}
+							})
 						})
 						if stop {
 							return
@@ -160,7 +182,7 @@ func (a *App) viewAdd(c *ui.Context, th *ui.Theme) {
 			if stop {
 				return
 			}
-			ui.Text(c, "配置 URL").FontSize(13).TextColor(th.TextMuted)
+			ui.Text(c, "配置 URL").FontSize(fontCaption).TextColor(th.TextMuted)
 			field := ui.TextInput(c, &a.urlDraft).Placeholder("https://example.com/tvbox.json").Label("配置 URL")
 			if field.Submitted() {
 				ref := a.urlDraft
@@ -169,22 +191,8 @@ func (a *App) viewAdd(c *ui.Context, th *ui.Theme) {
 				a.AddSubscription(ref)
 				return
 			}
-			ui.Text(c, "外观").FontSize(13).TextColor(th.TextMuted)
-			ui.Row(c).Gap(8).Children(func() {
-				a.choice(c, th, "外观深色", "深色", !a.light, func() {
-					a.light = false
-					a.saveSettings()
-				})
-				a.choice(c, th, "外观浅色", "浅色", a.light, func() {
-					a.light = true
-					a.saveSettings()
-				})
-			})
-			if ui.Checkbox(c, &a.preferExternal, "优先使用 mpv 播放").Changed() {
-				a.saveSettings()
-			}
 			if a.loadErr != "" && a.catalog != nil {
-				a.note(c, th, a.loadErr, true)
+				a.noteWithActions(c, th, a.loadErr, true, stateAction{label: "重试订阅", primary: true, click: a.retrySubs})
 			}
 			ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
 				if ui.Button(c, "取消").Clicked() {
@@ -205,6 +213,48 @@ func (a *App) viewAdd(c *ui.Context, th *ui.Theme) {
 	})
 }
 
+func (a *App) viewSettings(c *ui.Context, th *ui.Theme) {
+	ui.Modal(c, &a.settingsOpen, func() {
+		ui.Column(c).Width(440).Gap(16).Children(func() {
+			ui.Text(c, "设置").FontSize(fontHeadline).Bold()
+			ui.Text(c, "外观与播放器偏好只影响这台设备。订阅地址在顶部「订阅」中管理。").TextColor(th.TextMuted).Wrap()
+			ui.Text(c, "外观").FontSize(fontCaption).TextColor(th.TextMuted)
+			ui.Row(c).Gap(8).Children(func() {
+				a.choice(c, th, "外观深色", "深色", !a.light, func() {
+					a.light = false
+					a.saveSettings()
+				})
+				a.choice(c, th, "外观浅色", "浅色", a.light, func() {
+					a.light = true
+					a.saveSettings()
+				})
+			})
+			ui.Column(c).FillWidth().Padding(12, 14).Radius(8).Background(th.Surface).Children(func() {
+				if ui.Checkbox(c, &a.preferExternal, "优先使用 mpv 播放").Changed() {
+					a.saveSettings()
+				}
+				ui.Text(c, "mpv 可以带上 Referer 和自定义 User-Agent；原生播放器更轻量。").FontSize(fontCaption).TextColor(th.TextMuted).Wrap()
+			})
+			ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
+				if ui.PrimaryButton(c, "完成").Clicked() {
+					a.settingsOpen = false
+				}
+			})
+		})
+	})
+}
+
+func (a *App) openSubs() {
+	a.urlDraft = ""
+	a.settingsOpen = false
+	a.adding = true
+}
+
+func (a *App) openSettings() {
+	a.adding = false
+	a.settingsOpen = true
+}
+
 func (a *App) viewSidebar(c *ui.Context, th *ui.Theme) {
 	ui.Column(c).Width(sideWidth).FillHeight().Background(sidebarInk(a.light)).Padding(20, 12, 16, 12).Gap(18).Children(func() {
 		ui.Row(c).Gap(10).AlignItems(ui.Center).Padding(2, 8, 0, 8).Children(func() {
@@ -212,15 +262,19 @@ func (a *App) viewSidebar(c *ui.Context, th *ui.Theme) {
 				ui.Icon(c, iconPlay).Size(12, 12).TextColor(th.AccentText)
 			})
 			ui.Column(c).Gap(1).Children(func() {
-				ui.Text(c, "QuickBo").FontSize(15).Bold()
-				ui.Text(c, "自备片源").FontSize(12).TextColor(th.TextMuted)
+				ui.Text(c, "QuickBo").FontSize(fontBody).Bold()
+				ui.Text(c, "桌面播放器").FontSize(fontCaption).TextColor(th.TextMuted)
 			})
 		})
 		side := ui.Sidebar(c, &a.sideSel, func() {
-			ui.SidebarSection(c, "资料库", nil, func() {
+			ui.SidebarSection(c, "导航", nil, func() {
 				ui.SidebarItem(c, "home", iconHome, "首页")
+			})
+			ui.SidebarSection(c, "资料库", nil, func() {
 				ui.SidebarItem(c, "history", iconClock, "历史")
 				ui.SidebarItem(c, "fav", iconHeart, "收藏")
+			})
+			ui.SidebarSection(c, "管理", nil, func() {
 				ui.SidebarItem(c, "sources", iconSignal, "片源")
 				ui.SidebarItem(c, "rules", iconList, "分类")
 			})
@@ -231,29 +285,35 @@ func (a *App) viewSidebar(c *ui.Context, th *ui.Theme) {
 						m := s.Meta()
 						key := m.Key
 						item := ui.SidebarItem(c, "site:"+key, iconScreen, m.Name)
+						hovered := item.Hovered()
 						item.ContextMenu(func(menu *ui.Menu) {
 							if menu.Item("删除").Chosen() {
 								a.dropSite(key)
 							}
 						})
 						item.Children(func() {
-							ui.Text(c.Key("drop-site:"+key), "移除").FontSize(12).TextColor(th.TextMuted).Cursor(ui.CursorPointer).OnClick(func() {
-								a.dropSite(key)
-							})
+							if hovered {
+								a.iconBtn(c, "drop-site:"+key, iconClose, "移除源", 24, 14, th.TextMuted, func() {
+									a.dropSite(key)
+								})
+							}
 						})
 					}
 					for _, li := range g.lives {
 						lv, idx := li.entry, li.idx
 						item := ui.SidebarItem(c, fmt.Sprintf("live:%d", idx), iconSignal, lv.Name)
+						hovered := item.Hovered()
 						item.ContextMenu(func(menu *ui.Menu) {
 							if menu.Item("删除").Chosen() {
 								a.dropLive(lv.URL)
 							}
 						})
 						item.Children(func() {
-							ui.Text(c.Key("drop-live:"+lv.URL), "移除").FontSize(12).TextColor(th.TextMuted).Cursor(ui.CursorPointer).OnClick(func() {
-								a.dropLive(lv.URL)
-							})
+							if hovered {
+								a.iconBtn(c, "drop-live:"+lv.URL, iconClose, "移除直播源", 24, 14, th.TextMuted, func() {
+									a.dropLive(lv.URL)
+								})
+							}
 						})
 					}
 				})
@@ -262,6 +322,19 @@ func (a *App) viewSidebar(c *ui.Context, th *ui.Theme) {
 		if side.Changed() {
 			a.onSide()
 		}
+		ui.Box(c).FillWidth().Height(1).Background(th.Border)
+		entry := ui.Row(c.Key("settings-entry")).FillWidth().Padding(10, 10).Radius(8).AlignItems(ui.Center).Gap(10).
+			OnClick(a.openSettings).Cursor(ui.CursorPointer).Tooltip("打开设置").Label("设置")
+		switch {
+		case a.settingsOpen:
+			entry.Background(th.Accent.Alpha(0.12))
+		case entry.Hovered():
+			entry.Background(th.SurfaceHover)
+		}
+		entry.Transition(ui.ElementTransition{Duration: 150 * time.Millisecond}).Children(func() {
+			ui.Icon(c, iconGear).Size(18, 18).TextColor(th.TextMuted)
+			ui.Text(c, "设置").FontSize(fontBody).TextColor(th.Text)
+		})
 	})
 }
 
@@ -273,11 +346,11 @@ func (a *App) viewTop(c *ui.Context, th *ui.Theme) {
 			}
 		}
 		ui.Column(c).Gap(1).Shrink(1).Children(func() {
-			ui.Text(c, a.crumb()).FontSize(12).TextColor(th.TextMuted).SingleLine()
-			ui.Text(c, a.headline()).FontSize(18).Bold().SingleLine()
+			ui.Text(c, a.crumb()).FontSize(fontCaption).TextColor(th.TextMuted).SingleLine()
+			ui.Text(c, a.headline()).FontSize(fontTitle).Bold().SingleLine()
 		})
 		ui.Column(c).Grow(1)
-		if a.screen == screenBrowse || a.screen == screenHome || a.screen == screenLive || a.screen == screenDetail {
+		if a.screen == screenBrowse || a.screen == screenHome || a.screen == screenLive {
 			ph := "搜索片名，回车"
 			if a.screen == screenHome {
 				ph = "搜索全部片源，回车"
@@ -312,9 +385,8 @@ func (a *App) viewTop(c *ui.Context, th *ui.Theme) {
 				}
 			}
 		}
-		if ui.Button(c, "配置").Clicked() {
-			a.urlDraft = ""
-			a.adding = true
+		if ui.Button(c, "订阅").Clicked() {
+			a.openSubs()
 		}
 	})
 	if a.loading || a.loadErr != "" {
@@ -327,7 +399,7 @@ func (a *App) viewTop(c *ui.Context, th *ui.Theme) {
 				a.loadingRow(c, th, msg)
 			}
 			if a.loadErr != "" {
-				a.note(c, th, a.loadErr, true)
+				a.noteWithActions(c, th, a.loadErr, true, stateAction{label: "重试订阅", primary: true, click: a.retrySubs})
 			}
 		})
 	}
@@ -404,7 +476,7 @@ func (a *App) viewBrowse(c *ui.Context, th *ui.Theme) {
 					if a.page.Total > 0 && a.page.Total < 500 {
 						label += fmt.Sprintf("  ·  %d 条", a.page.Total)
 					}
-					ui.Text(c, label).FontSize(26).Bold()
+					ui.Text(c, label).FontSize(fontHero).Bold()
 				}
 				if len(a.cats) > 0 && !searching {
 					a.catTabs(c, th)
@@ -414,11 +486,23 @@ func (a *App) viewBrowse(c *ui.Context, th *ui.Theme) {
 					return
 				}
 				if a.listErr != "" {
-					a.note(c, th, a.listErr, true)
+					a.noteWithActions(c, th, a.listErr, true, stateAction{label: "重试", primary: true, click: a.retryList})
 				}
 				n := len(a.page.Items)
 				if n == 0 && a.listErr == "" {
-					a.emptyState(c, th, "没有结果", "换一个分类，或换个关键词再搜。")
+					actions := []stateAction{
+						{label: "重新加载", primary: true, click: a.retryList},
+						{label: "返回首页", click: a.goHome},
+					}
+					if searching {
+						actions[0] = stateAction{label: "清空搜索", primary: true, click: func() {
+							a.query = ""
+							a.committed = ""
+							a.pageNum = 1
+							a.retryList()
+						}}
+					}
+					a.emptyState(c, th, "没有结果", "换一个分类，或换个关键词再搜。", actions...)
 					return
 				}
 				ui.Grid(c).ColumnTracks(tracks...).Gap(16).Children(func() {
@@ -466,6 +550,35 @@ func (a *App) posterGrid(c *ui.Context) (cols int, cellW, cellH float32, tracks 
 	return cols, cellW, cellH, tracks
 }
 
+func portraitHeight(winH float32) float32 {
+	ph := winH * 0.46
+	if ph < 220 {
+		return 220
+	}
+	if ph > 460 {
+		return 460
+	}
+	return ph
+}
+
+func (a *App) episodeTracks(c *ui.Context) []ui.Track {
+	winW, winH := c.Size()
+	available := winW - sideWidth - pagePad*2 - portraitHeight(winH)*2/3 - 22
+	const gap, cell float32 = 8, 104
+	cols := int((available + gap) / (cell + gap))
+	if cols < 2 {
+		cols = 2
+	}
+	if cols > 8 {
+		cols = 8
+	}
+	tracks := make([]ui.Track, cols)
+	for i := range tracks {
+		tracks[i] = ui.Fixed(cell)
+	}
+	return tracks
+}
+
 func (a *App) catTabs(c *ui.Context, th *ui.Theme) {
 	ui.ScrollBoth(c).MaxHeight(48).Children(func() {
 		ui.Row(c).Gap(20).AlignItems(ui.End).Children(func() {
@@ -479,18 +592,19 @@ func (a *App) catTabs(c *ui.Context, th *ui.Theme) {
 
 func (a *App) tab(c *ui.Context, th *ui.Theme, key, label string, on bool, click func()) {
 	p := ui.Column(c.Key(key)).Gap(8).Padding(10, 2).OnClick(click).Cursor(ui.CursorPointer)
+	hovered := p.Hovered()
 	fg := th.TextMuted
-	if on || p.Hovered() {
-		fg = ui.Hex("#fafafa")
-		if a.light {
-			fg = th.Text
-		}
+	if on || hovered {
+		fg = th.Text
 	}
 	p.Children(func() {
-		ui.Text(c, label).FontSize(14).TextColor(fg).SingleLine()
+		ui.Text(c, label).FontSize(fontBody).TextColor(fg).SingleLine()
 		bar := ui.Box(c).Height(2).Radius(1)
-		if on {
+		switch {
+		case on:
 			bar.Background(th.Accent)
+		case hovered:
+			bar.Background(th.Border)
 		}
 	})
 }
@@ -507,7 +621,7 @@ func (a *App) viewContinue(c *ui.Context, th *ui.Theme) {
 		watches = watches[:8]
 	}
 	ui.Column(c).Gap(12).Children(func() {
-		ui.Text(c, "继续观看").FontSize(16).Bold()
+		ui.Text(c, "继续观看").FontSize(fontTitle).Bold()
 		ui.ScrollBoth(c).MaxHeight(210).Children(func() {
 			ui.Row(c).Gap(12).Children(func() {
 				for _, w := range watches {
@@ -518,11 +632,19 @@ func (a *App) viewContinue(c *ui.Context, th *ui.Theme) {
 						a.playLine = w.Line
 						a.startPlay(w.Title+"  ·  "+w.Episode, w.URL, nil, false)
 					}).Cursor(ui.CursorPointer)
+					hot := card.Hovered()
 					card.Children(func() {
-						ui.Column(c).Width(104).Height(156).Radius(8).Clip().Background(th.Surface).Children(func() {
-							a.cover(c, th, w.Pic, w.Title, 104, 156, nil, card.Hovered())
+						frame := ui.Column(c.Key("continue-frame:" + w.Key)).Width(104).Height(156).Radius(8).Clip().Background(th.Surface)
+						a.animateCard(card, frame, hot, a.light)
+						frame.Children(func() {
+							a.cover(c, th, w.Pic, w.Title, 104, 156, nil, hot)
+							if hot {
+								a.removeBadge(c, th, "remove-continue:"+w.Key, "从继续观看删除", func() {
+									a.lib.removeWatch(w.Key)
+								})
+							}
 						})
-						ui.Text(c, w.Title).FontSize(13).SingleLine()
+						ui.Text(c, w.Title).FontSize(fontCaption).SingleLine()
 						frac := float32(0)
 						if w.Duration > 0 {
 							frac = float32(w.Position / w.Duration)
@@ -538,6 +660,10 @@ func (a *App) viewContinue(c *ui.Context, th *ui.Theme) {
 }
 
 func (a *App) posterCard(c *ui.Context, th *ui.Theme, siteKey string, item model.Item, cellW, cellH float32) {
+	a.posterCardWithRemove(c, th, siteKey, item, cellW, cellH, nil)
+}
+
+func (a *App) posterCardWithRemove(c *ui.Context, th *ui.Theme, siteKey string, item model.Item, cellW, cellH float32, remove func()) {
 	open := func() {
 		if siteKey != "" {
 			a.siteKey = siteKey
@@ -547,16 +673,31 @@ func (a *App) posterCard(c *ui.Context, th *ui.Theme, siteKey string, item model
 	card := ui.Column(c.Key("card:" + siteKey + ":" + item.ID)).Width(cellW).Gap(8).OnClick(open).Cursor(ui.CursorPointer)
 	hot := card.Hovered()
 	card.Children(func() {
-		frame := ui.Column(c).Width(cellW).Height(cellH).Radius(8).Clip().Background(th.Surface)
+		frame := ui.Column(c.Key("poster-frame:" + siteKey + ":" + item.ID)).Width(cellW).Height(cellH).Radius(8).Clip().Background(th.Surface)
+		a.animateCard(card, frame, hot, a.light)
 		frame.Children(func() {
 			a.cover(c, th, item.Pic, item.Title, cellW, cellH, open, hot)
 			if item.Remarks != "" {
 				ui.Column(c).Absolute().Left(8).Top(8).Padding(3, 6).Radius(4).Background(ui.RGBA(0, 0, 0, 0.62)).Children(func() {
-					ui.Text(c, item.Remarks).FontSize(12).TextColor(ui.Hex("#FAFAFA")).SingleLine()
+					ui.Text(c, item.Remarks).FontSize(fontCaption).TextColor(th.AccentText).SingleLine()
 				})
 			}
+			if hot && remove != nil {
+				a.removeBadge(c, th, "remove-poster:"+siteKey+":"+item.ID, "删除收藏", remove)
+			}
 		})
-		ui.Text(c, item.Title).FontSize(14).SingleLine().OnClick(open)
+		ui.Text(c, item.Title).FontSize(fontBody).SingleLine().OnClick(open)
+	})
+}
+
+func (a *App) removeBadge(c *ui.Context, th *ui.Theme, key, label string, remove func()) {
+	badge := ui.Column(c.Key(key)).Absolute().Right(8).Top(8).Size(24, 24).Radius(12).Center().
+		Background(ui.RGBA(0, 0, 0, 0.72)).OnClick(remove).Cursor(ui.CursorPointer).Tooltip(label).Label(label)
+	if badge.Hovered() {
+		badge.Background(th.Accent)
+	}
+	badge.Transition(ui.ElementTransition{Duration: 150 * time.Millisecond}).Children(func() {
+		ui.Icon(c, iconClose).Size(14, 14).TextColor(th.AccentText)
 	})
 }
 
@@ -577,7 +718,7 @@ func (a *App) cover(c *ui.Context, th *ui.Theme, pic, title string, w, h float32
 		return
 	}
 	ui.Column(c).Width(w).Height(h).Center().Gradient(th.Surface, th.SurfaceHover, 160).Children(func() {
-		ui.Text(c, mark(title)).FontSize(28).Bold().TextColor(th.TextMuted)
+		ui.Text(c, mark(title)).FontSize(fontHero).Bold().TextColor(th.TextMuted)
 	})
 }
 
@@ -624,12 +765,8 @@ func (a *App) viewPager(c *ui.Context, th *ui.Theme) {
 }
 
 func (a *App) viewDetail(c *ui.Context, th *ui.Theme) {
-	if a.detailLoading && a.detail == nil {
-		_, cellW, cellH, _ := a.posterGrid(c)
-		a.skeletonRow(c, th, 5, cellW, cellH)
-	}
 	if a.detailErr != "" {
-		a.note(c, th, a.detailErr, true)
+		a.noteWithActions(c, th, a.detailErr, true, stateAction{label: "重试", primary: true, click: a.retryDetail})
 	}
 	d := a.detail
 	title := a.detailTitle
@@ -644,17 +781,10 @@ func (a *App) viewDetail(c *ui.Context, th *ui.Theme) {
 					pic = d.Pic
 				}
 				_, winH := c.Size()
-				ph := winH * 0.46
-				if ph < 220 {
-					ph = 220
-				}
-				if ph > 460 {
-					ph = 460
-				}
-				a.portrait(c, th, pic, title, ph)
+				a.portrait(c, th, pic, title, portraitHeight(winH))
 				ui.Column(c).Grow(1).Gap(10).Padding(8, 0, 0, 0).Children(func() {
 					ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
-						ui.Text(c, title).FontSize(32).Bold().Shrink(1)
+						ui.Text(c, title).FontSize(fontHero).Bold().Shrink(1)
 						if d != nil && a.linePick >= 0 && a.linePick < len(d.Lines) && len(d.Lines[a.linePick].Episodes) > 0 {
 							ep := d.Lines[a.linePick].Episodes[0]
 							ln := d.Lines[a.linePick].Name
@@ -684,32 +814,50 @@ func (a *App) viewDetail(c *ui.Context, th *ui.Theme) {
 							})
 						}
 					})
+					if d == nil {
+						ui.Column(c).Gap(8).Children(func() {
+							ui.Box(c).Width(240).Height(12).Radius(4).Background(th.SurfaceHover)
+							ui.Box(c).Width(180).Height(12).Radius(4).Background(th.SurfaceHover)
+							ui.Box(c).Width(208).Height(12).Radius(4).Background(th.SurfaceHover)
+						})
+					}
 					if d != nil {
 						meta := joinMeta(d.TypeName, d.Year, d.Area, d.Remarks)
 						if meta != "" {
-							ui.Text(c, meta).Wrap()
+							ui.Text(c, meta).FontSize(fontCaption).TextColor(th.TextMuted).Wrap()
 						}
 						who := joinMeta(prefix("导演 ", d.Director), prefix("主演 ", d.Actors))
 						if who != "" {
-							ui.Text(c, who).TextColor(th.TextMuted).Wrap()
+							ui.Text(c, who).FontSize(fontCaption).TextColor(th.TextMuted).Wrap()
 						}
 						if d.Content != "" {
-							ui.Text(c, d.Content).TextColor(th.TextMuted).Wrap()
+							ui.Text(c, d.Content).FontSize(fontBody).TextColor(th.TextMuted).Wrap()
 						}
 					}
 				})
 			})
-			if len(a.offers) > 0 {
-				a.viewOffers(c, th)
-			}
 			if d == nil {
 				if a.detailLoading {
-					a.loadingRow(c, th, "正在读取各片源的线路和清晰度…")
+					msg := "正在读取影片详情…"
+					if len(a.offers) > 0 {
+						msg = "正在读取各片源的线路和清晰度…"
+					}
+					a.loadingRow(c, th, msg)
+				} else if a.detailErr == "" {
+					a.emptyState(c, th, "暂时没有详情", "返回列表，或换一个片源再试。",
+						stateAction{label: "返回", primary: true, click: a.back})
+				}
+				if len(a.offers) > 0 {
+					a.viewOffers(c, th)
 				}
 				return
 			}
+			if len(a.offers) > 0 {
+				a.viewOffers(c, th)
+			}
 			if len(d.Lines) == 0 {
-				a.emptyState(c, th, "没有剧集", "这个详情页没有返回可播放的地址。")
+				a.emptyState(c, th, "没有剧集", "这个详情页没有返回可播放的地址。",
+					stateAction{label: "返回", primary: true, click: a.back})
 				return
 			}
 			if a.linePick >= len(d.Lines) {
@@ -725,25 +873,28 @@ func (a *App) viewDetail(c *ui.Context, th *ui.Theme) {
 					})
 				})
 			} else if !slugLine(d.Lines[0].Name) {
-				ui.Text(c, d.Lines[0].Name).FontSize(13).Bold().TextColor(th.TextMuted)
+				ui.Text(c, d.Lines[0].Name).FontSize(fontCaption).Bold().TextColor(th.TextMuted)
 			}
 			line := d.Lines[a.linePick]
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-				ui.Text(c, "剧集").FontSize(16).Bold()
-				ui.Text(c, fmt.Sprintf("%d 集", len(line.Episodes))).FontSize(13).TextColor(th.TextMuted)
+				ui.Text(c, "剧集").FontSize(fontTitle).Bold()
+				ui.Text(c, fmt.Sprintf("%d 集", len(line.Episodes))).FontSize(fontCaption).TextColor(th.TextMuted)
 			})
-			ui.Row(c).Gap(8).Wrap().Children(func() {
-				for _, ep := range line.Episodes {
-					ep := ep
-					label := ep.Name
-					if label == "" {
-						label = "播放"
+			tracks := a.episodeTracks(c)
+			ui.ScrollBoth(c).MaxHeight(260).Children(func() {
+				ui.Grid(c).ColumnTracks(tracks...).Gap(8).Children(func() {
+					for _, ep := range line.Episodes {
+						ep := ep
+						label := ep.Name
+						if label == "" {
+							label = "播放"
+						}
+						on := a.playLine == line.Name && label == currentEpisodeName(a)
+						a.choice(c, th, line.Name+"\n"+ep.URL+"\n"+label, label, on, func() {
+							a.playEpisode(line.Name, ep)
+						})
 					}
-					on := a.playLine == line.Name && label == currentEpisodeName(a)
-					a.choice(c, th, line.Name+"\n"+ep.URL+"\n"+label, label, on, func() {
-						a.playEpisode(line.Name, ep)
-					})
-				}
+				})
 			})
 		})
 	})
@@ -765,16 +916,22 @@ func (a *App) viewLive(c *ui.Context, th *ui.Theme) {
 		return
 	}
 	if a.liveErr != "" {
-		a.note(c, th, a.liveErr, true)
+		a.noteWithActions(c, th, a.liveErr, true, stateAction{label: "重试", primary: true, click: a.retryLive})
 		return
 	}
 	chs := a.visibleChannels()
 	if len(chs) == 0 {
 		if strings.TrimSpace(a.query) != "" && len(a.channels) > 0 {
-			a.emptyState(c, th, "没有频道符合「"+strings.TrimSpace(a.query)+"」", "清空搜索框可以看到全部频道。")
+			a.emptyState(c, th, "没有频道符合「"+strings.TrimSpace(a.query)+"」", "清空搜索框可以看到全部频道。",
+				stateAction{label: "清空搜索", primary: true, click: func() {
+					a.query = ""
+					a.committed = ""
+				}})
 			return
 		}
-		a.emptyState(c, th, "没有频道", "这份播放列表是空的。")
+		a.emptyState(c, th, "没有频道", "这份播放列表是空的。",
+			stateAction{label: "重新加载列表", primary: true, click: a.retryLive},
+			stateAction{label: "管理订阅", click: a.openSubs})
 		return
 	}
 	groups := liveGroups(chs)
@@ -787,9 +944,15 @@ func (a *App) viewLive(c *ui.Context, th *ui.Theme) {
 			}
 		}
 	}
+	base := ""
+	if a.catalog != nil && a.liveIndex >= 0 && a.liveIndex < len(a.catalog.Lives) {
+		if entry := a.catalog.Lives[a.liveIndex]; entry != nil {
+			base = entry.URL
+		}
+	}
 	ui.Row(c).Grow(1).Gap(12).AlignItems(ui.Stretch).Children(func() {
 		ui.Column(c).Width(168).Gap(8).Children(func() {
-			ui.Text(c, "分组").FontSize(13).TextColor(th.TextMuted)
+			ui.Text(c, "分组").FontSize(fontCaption).TextColor(th.TextMuted)
 			ui.Scroll(c).Grow(1).Children(func() {
 				ui.Column(c).Gap(6).Children(func() {
 					a.choice(c, th, "grp-all", "全部", a.liveGroup == "", func() { a.liveGroup = "" })
@@ -808,7 +971,7 @@ func (a *App) viewLive(c *ui.Context, th *ui.Theme) {
 			chCol = chCol.Grow(1)
 		}
 		chCol.Children(func() {
-			ui.Text(c, fmt.Sprintf("%d 个频道", len(shown))).FontSize(13).TextColor(th.TextMuted)
+			ui.Text(c, fmt.Sprintf("%d 个频道", len(shown))).FontSize(fontCaption).TextColor(th.TextMuted)
 			ui.List(c, &a.chState, len(shown), func(i int) {
 				ch := shown[i]
 				row := ui.Row(c).FillWidth().Padding(8, 12).Radius(8).Gap(12).AlignItems(ui.Center)
@@ -817,9 +980,7 @@ func (a *App) viewLive(c *ui.Context, th *ui.Theme) {
 					bg = th.SurfaceHover
 				}
 				row.Background(bg).Children(func() {
-					ui.Column(c).Width(36).Height(36).Radius(8).Background(th.Surface).Center().Children(func() {
-						ui.Text(c, mark(ch.Name)).FontSize(14).Bold().TextColor(th.Text)
-					})
+					a.liveLogo(c, th, ch, base)
 					ui.Text(c, ch.Name).Grow(1).SingleLine()
 					a.iconBtn(c, "ch:"+ch.Group+"/"+ch.Name+"/"+ch.URL, iconPlay, "播放", 44, 20, th.Text, func() { a.playChannel(ch) })
 				})
@@ -833,17 +994,33 @@ func (a *App) viewLive(c *ui.Context, th *ui.Theme) {
 	})
 }
 
+func (a *App) liveLogo(c *ui.Context, th *ui.Theme, ch live.Channel, base string) {
+	frame := ui.Column(c).Size(36, 36).Radius(8).Background(th.Surface).Center().Clip()
+	if logo := model.ResolveURL(base, ch.Logo); logo != "" {
+		if bmp := a.poster(logo); bmp != nil {
+			frame.Children(func() {
+				ui.Image(c, bmp).Size(30, 30).Fit(ui.Contain)
+			})
+			return
+		}
+	}
+	frame.Children(func() {
+		ui.Text(c, mark(ch.Name)).FontSize(fontBody).Bold().TextColor(th.Text)
+	})
+}
+
 func (a *App) viewUnsupported(c *ui.Context, th *ui.Theme) {
 	m, ok := a.currentMeta()
 	if !ok {
-		a.emptyState(c, th, "没有选中的站点", "")
+		a.emptyState(c, th, "没有选中的站点", "",
+			stateAction{label: "回到首页", primary: true, click: a.goHome})
 		return
 	}
 	ui.Column(c).Grow(1).Center().Children(func() {
 		ui.Column(c).Width(460).Gap(12).Children(func() {
 			ui.Box(c).Width(28).Height(2).Radius(1).Background(th.Accent)
-			ui.Text(c, m.Name).FontSize(28).Bold()
-			ui.Text(c, config.KindLabel(m.Kind)).FontSize(13).TextColor(th.TextMuted)
+			ui.Text(c, m.Name).FontSize(fontHero).Bold()
+			ui.Text(c, config.KindLabel(m.Kind)).FontSize(fontCaption).TextColor(th.TextMuted)
 			reason := m.Reason
 			if reason == "" {
 				reason = "这个站点本版不支持。"
@@ -853,7 +1030,7 @@ func (a *App) viewUnsupported(c *ui.Context, th *ui.Theme) {
 				ui.Text(c, "QuickBo 不执行 jar，也不会去加载 DEX。换一个 CMS、JS 或 XBPQ 源即可。").TextColor(th.TextMuted).Wrap()
 			}
 			if m.API != "" {
-				ui.Text(c, m.API).FontSize(12).TextColor(th.TextMuted).Selectable().Wrap()
+				ui.Text(c, m.API).FontSize(fontCaption).TextColor(th.TextMuted).Selectable().Wrap()
 			}
 			if m.Kind == config.KindRemote && (strings.HasPrefix(m.API, "http://") || strings.HasPrefix(m.API, "https://")) {
 				if ui.Button(c, "当作配置打开").Clicked() {
@@ -878,7 +1055,7 @@ func (a *App) viewIndex(c *ui.Context, th *ui.Theme) {
 	}
 	ui.Scroll(c).Grow(1).Children(func() {
 		ui.Column(c).Gap(12).Children(func() {
-			ui.Text(c, "这是一份仓库索引，还不是点播配置。").FontSize(22).Bold()
+			ui.Text(c, "这是一份仓库索引，还不是点播配置。").FontSize(fontHeadline).Bold()
 			ui.Text(c, "选一个地址继续加载。").TextColor(th.TextMuted)
 			if a.catalog == nil {
 				return
@@ -896,7 +1073,7 @@ func (a *App) viewIndex(c *ui.Context, th *ui.Theme) {
 					}
 					row.Children(func() {
 						ui.Text(c, name).Bold()
-						ui.Text(c, u.URL).FontSize(12).TextColor(th.TextMuted).Selectable()
+						ui.Text(c, u.URL).FontSize(fontCaption).TextColor(th.TextMuted).Selectable()
 					})
 				}
 			})
@@ -906,39 +1083,113 @@ func (a *App) viewIndex(c *ui.Context, th *ui.Theme) {
 
 func (a *App) choice(c *ui.Context, th *ui.Theme, key, label string, on bool, click func()) {
 	p := ui.Column(c.Key(key)).Padding(10, 12).Radius(8).OnClick(click).Cursor(ui.CursorPointer)
-	bg := th.SurfaceHover
-	fg := th.Text
-	if on {
-		bg = th.Accent
-		fg = th.AccentText
-	} else if p.Hovered() {
-		bg = th.SurfacePressed
-	}
+	bg, fg := selectionColors(th, on, p.Hovered())
 	p.Background(bg).Transition(ui.ElementTransition{Duration: 150 * time.Millisecond}).Children(func() {
-		ui.Text(c, label).FontSize(13).TextColor(fg).SingleLine()
+		ui.Text(c, label).FontSize(fontBody).TextColor(fg).SingleLine()
+	})
+}
+
+type stateAction struct {
+	label   string
+	primary bool
+	click   func()
+}
+
+func (a *App) actionRow(c *ui.Context, actions []stateAction) {
+	if len(actions) == 0 {
+		return
+	}
+	ui.Row(c).Gap(8).Children(func() {
+		for _, action := range actions {
+			action := action
+			var btn ui.Element
+			if action.primary {
+				btn = ui.PrimaryButton(c, action.label)
+			} else {
+				btn = ui.Button(c, action.label)
+			}
+			if btn.Clicked() && action.click != nil {
+				action.click()
+			}
+		}
 	})
 }
 
 func (a *App) note(c *ui.Context, th *ui.Theme, text string, bad bool) {
+	a.noteWithActions(c, th, text, bad)
+}
+
+func (a *App) noteWithActions(c *ui.Context, th *ui.Theme, text string, bad bool, actions ...stateAction) {
 	bg := th.Surface
 	fg := th.TextMuted
 	if bad {
 		bg = th.Danger.Alpha(0.14)
 		fg = th.Danger
 	}
-	ui.Column(c).FillWidth().Padding(12, 14).Radius(8).Background(bg).Children(func() {
+	ui.Column(c).FillWidth().Padding(12, 14).Radius(8).Background(bg).Gap(10).Children(func() {
 		ui.Text(c, text).TextColor(fg).Wrap()
+		a.actionRow(c, actions)
 	})
 }
 
-func (a *App) emptyState(c *ui.Context, th *ui.Theme, title, body string) {
+func (a *App) emptyState(c *ui.Context, th *ui.Theme, title, body string, actions ...stateAction) {
 	ui.Column(c).FillWidth().Padding(36, 0).Gap(10).Children(func() {
 		ui.Box(c).Width(28).Height(2).Radius(1).Background(th.Accent)
-		ui.Text(c, title).FontSize(20).Bold()
+		ui.Text(c, title).FontSize(fontHeadline).Bold()
 		if body != "" {
 			ui.Text(c, body).TextColor(th.TextMuted).Wrap()
 		}
+		a.actionRow(c, actions)
 	})
+}
+
+func (a *App) retrySubs() {
+	a.loadErr = ""
+	if len(a.activeRefs()) == 0 {
+		a.openSubs()
+		return
+	}
+	a.LoadSaved()
+}
+
+func (a *App) retryList() {
+	a.listErr = ""
+	a.loadList()
+}
+
+func (a *App) retryDetail() {
+	if a.detailItem.ID == "" {
+		return
+	}
+	a.openDetail(a.detailItem)
+}
+
+func (a *App) retryLive() {
+	if a.catalog == nil || a.liveIndex < 0 || a.liveIndex >= len(a.catalog.Lives) {
+		a.openSubs()
+		return
+	}
+	a.selectLive(a.liveIndex)
+}
+
+func (a *App) retryPlay() {
+	if strings.TrimSpace(a.playURL) == "" {
+		a.openSubs()
+		return
+	}
+	a.playErr = ""
+	a.startPlay(a.playTitle, a.playURL, a.playHeaders, a.fromLive)
+}
+
+func (a *App) goHome() {
+	a.closePlayer()
+	a.screen = screenHome
+	a.sideSel = "home"
+	a.lastSide = "home"
+	a.query = ""
+	a.committed = ""
+	a.homeHits = nil
+	a.homeSearching = false
 }
 
 func (a *App) loadingRow(c *ui.Context, th *ui.Theme, text string) {
@@ -959,60 +1210,11 @@ func joinMeta(parts ...string) string {
 	return strings.Join(out, "   ·   ")
 }
 
-func (a *App) viewRails(c *ui.Context, th *ui.Theme) {
-	ui.Text(c, "继续观看").FontSize(18).Bold()
-	watches := a.lib.watches()
-	if len(watches) == 0 {
-		ui.Text(c, "还没有观看记录。打开一部片子，进度会留在这里。").TextColor(th.TextMuted)
-	} else {
-		ui.ScrollBoth(c).MaxHeight(210).Children(func() {
-			ui.Row(c).Gap(12).Children(func() {
-				for _, w := range watches {
-					w := w
-					card := ui.Column(c.Key("w-" + w.Key)).Width(148).Gap(6).OnClick(func() {
-						a.resumeAt = w.Position
-						a.siteKey = w.SiteKey
-						a.playLine = w.Line
-						a.startPlay(w.Title+"  ·  "+w.Episode, w.URL, nil, false)
-					}).Cursor(ui.CursorPointer)
-					card.Children(func() {
-						ui.Column(c).Width(148).Height(96).Radius(10).Clip().Background(th.Surface).Children(func() {
-							a.cover(c, th, w.Pic, w.Title, 148, 96, nil, false)
-						})
-						ui.Text(c, w.Title).FontSize(13).Bold().SingleLine()
-						frac := float32(0)
-						if w.Duration > 0 {
-							frac = float32(w.Position / w.Duration)
-						}
-						ui.Box(c).FillWidth().Height(3).Radius(2).Background(th.SurfaceHover).Children(func() {
-							ui.Box(c).Height(3).WidthPercent(frac * 100).Background(th.Accent)
-						})
-					})
-				}
-			})
-		})
-	}
-	favs := a.lib.favs()
-	if len(favs) > 0 {
-		ui.Text(c, "收藏").FontSize(18).Bold()
-		ui.Row(c).Gap(12).Children(func() {
-			for _, f := range favs {
-				f := f
-				ui.Column(c.Key("f-" + f.Key)).Width(120).Gap(4).Children(func() {
-					ui.Column(c).Width(120).Height(168).Radius(10).Clip().Background(th.Surface).Children(func() {
-						a.cover(c, th, f.Pic, f.Title, 120, 168, nil, false)
-					})
-					ui.Text(c, f.Title).FontSize(12).SingleLine()
-				})
-			}
-		})
-	}
-}
-
 func (a *App) viewHistory(c *ui.Context, th *ui.Theme) {
 	items := a.lib.watches()
 	if len(items) == 0 {
-		a.emptyState(c, th, "还没有历史", "播放过的片子会出现在这里，并记住进度。")
+		a.emptyState(c, th, "还没有历史", "播放过的片子会出现在这里，并记住进度。",
+			stateAction{label: "去首页", primary: true, click: a.goHome})
 		return
 	}
 	_, cellW, cellH, tracks := a.posterGrid(c)
@@ -1026,16 +1228,24 @@ func (a *App) viewHistory(c *ui.Context, th *ui.Theme) {
 					a.playLine = w.Line
 					a.startPlay(w.Title, w.URL, nil, false)
 				}).Cursor(ui.CursorPointer)
+				hot := card.Hovered()
 				card.Children(func() {
-					ui.Column(c).Width(cellW).Height(cellH).Radius(8).Clip().Background(th.Surface).Children(func() {
-						a.cover(c, th, w.Pic, w.Title, cellW, cellH, nil, card.Hovered())
+					frame := ui.Column(c.Key("history-frame:" + w.Key)).Width(cellW).Height(cellH).Radius(8).Clip().Background(th.Surface)
+					a.animateCard(card, frame, hot, a.light)
+					frame.Children(func() {
+						a.cover(c, th, w.Pic, w.Title, cellW, cellH, nil, hot)
+						if hot {
+							a.removeBadge(c, th, "remove-history:"+w.Key, "删除历史", func() {
+								a.lib.removeWatch(w.Key)
+							})
+						}
 					})
-					ui.Text(c, w.Title).FontSize(14).SingleLine()
+					ui.Text(c, w.Title).FontSize(fontBody).SingleLine()
 					sub := w.Episode
 					if line := displayLine(w.Line); line != "" && sub != "" {
 						sub = line + "  ·  " + sub
 					}
-					ui.Text(c, sub).FontSize(12).TextColor(th.TextMuted).SingleLine()
+					ui.Text(c, sub).FontSize(fontCaption).TextColor(th.TextMuted).SingleLine()
 					frac := float32(0)
 					if w.Duration > 0 {
 						frac = float32(w.Position / w.Duration)
@@ -1052,14 +1262,18 @@ func (a *App) viewHistory(c *ui.Context, th *ui.Theme) {
 func (a *App) viewFavs(c *ui.Context, th *ui.Theme) {
 	items := a.lib.favs()
 	if len(items) == 0 {
-		a.emptyState(c, th, "还没有收藏", "在详情页点心形图标，片子会留在这里。")
+		a.emptyState(c, th, "还没有收藏", "在详情页点心形图标，片子会留在这里。",
+			stateAction{label: "去首页", primary: true, click: a.goHome})
 		return
 	}
 	_, cellW, cellH, tracks := a.posterGrid(c)
 	ui.Scroll(c).Grow(1).Children(func() {
 		ui.Grid(c).ColumnTracks(tracks...).Gap(16).Children(func() {
 			for _, f := range items {
-				a.posterCard(c, th, f.SiteKey, model.Item{ID: f.VodID, Title: f.Title, Pic: f.Pic, Remarks: f.Remarks, Year: f.Year}, cellW, cellH)
+				f := f
+				a.posterCardWithRemove(c, th, f.SiteKey,
+					model.Item{ID: f.VodID, Title: f.Title, Pic: f.Pic, Remarks: f.Remarks, Year: f.Year},
+					cellW, cellH, func() { a.lib.removeFav(f.Key) })
 			}
 		})
 	})

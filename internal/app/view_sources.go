@@ -19,7 +19,8 @@ func (a *App) viewSources(c *ui.Context, th *ui.Theme) {
 				}
 			})
 			if a.catalog == nil || len(a.catalog.Sites) == 0 {
-				a.emptyState(c, th, "还没有片源", "添加一份配置后，能列出内容的源会出现在这里。")
+				a.emptyState(c, th, "还没有片源", "添加一份配置后，能列出内容的源会出现在这里。",
+					stateAction{label: "添加订阅", primary: true, click: a.openSubs})
 				return
 			}
 			for _, s := range a.catalog.Sites {
@@ -27,9 +28,9 @@ func (a *App) viewSources(c *ui.Context, th *ui.Theme) {
 				key := m.Key
 				ui.Row(c.Key("src:"+key)).FillWidth().Padding(12, 14).Radius(8).Background(th.Surface).AlignItems(ui.Center).Gap(12).Children(func() {
 					ui.Column(c).Grow(1).Gap(4).Children(func() {
-						ui.Text(c, m.Name).FontSize(16).Bold().SingleLine()
-						ui.Text(c, hostOf(m.API)).FontSize(12).TextColor(th.TextMuted).SingleLine()
-						ui.Text(c, a.statLine(key)).FontSize(13).TextColor(th.TextMuted).SingleLine()
+						ui.Text(c, m.Name).FontSize(fontTitle).Bold().SingleLine()
+						ui.Text(c, hostOf(m.API)).FontSize(fontCaption).TextColor(th.TextMuted).SingleLine()
+						ui.Text(c, a.statLine(key)).FontSize(fontCaption).TextColor(statColor(th, a.stats[key])).SingleLine()
 					})
 					if ui.Button(c.Key("probe:"+key), "测速").Clicked() {
 						a.probeSource(key)
@@ -41,6 +42,19 @@ func (a *App) viewSources(c *ui.Context, th *ui.Theme) {
 			}
 		})
 	})
+}
+
+func statColor(th *ui.Theme, st sourceStat) ui.Color {
+	switch {
+	case st.Err != "" || st.Delay < 0:
+		return th.Danger
+	case st.Delay > 0 && st.Delay < 200:
+		return th.Success
+	case st.Delay > 0 && st.Delay < 800:
+		return th.Warning
+	default:
+		return th.TextMuted
+	}
 }
 
 func hostOf(raw string) string {
@@ -73,11 +87,11 @@ func (a *App) viewOffers(c *ui.Context, th *ui.Theme) {
 		last.idx = append(last.idx, i)
 	}
 	ui.Column(c).Gap(14).Children(func() {
-		ui.Text(c, "片源").FontSize(16).Bold()
+		ui.Text(c, "片源").FontSize(fontTitle).Bold()
 		for _, g := range groups {
 			g := g
 			ui.Column(c).Gap(8).Children(func() {
-				ui.Text(c, g.name).FontSize(13).TextColor(th.TextMuted)
+				ui.Text(c, g.name).FontSize(fontCaption).TextColor(th.TextMuted)
 				ui.Row(c).Gap(8).Wrap().Children(func() {
 					for _, i := range g.idx {
 						i := i

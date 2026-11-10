@@ -180,7 +180,7 @@ func TestSubsDialogListsSubscriptions(t *testing.T) {
 		{Ref: "two", Name: "乙订阅", Enabled: false},
 	}
 	tt := ui.NewTester(a.View, 1200, 900)
-	if err := tt.Click("配置"); err != nil {
+	if err := tt.Click("订阅"); err != nil {
 		t.Fatal(err)
 	}
 	for _, text := range []string{"订阅列表", "添加订阅", "甲订阅", "乙订阅", "启用"} {
@@ -198,7 +198,7 @@ func TestSubsDialogToggleDoesNotCrashTheFrame(t *testing.T) {
 	a.screen = screenHome
 	a.subs = []subscription{{Ref: "one", Name: "一", Enabled: true}}
 	tt := ui.NewTester(a.View, 1200, 900)
-	if err := tt.Click("配置"); err != nil {
+	if err := tt.Click("订阅"); err != nil {
 		t.Fatal(err)
 	}
 	if err := tt.Click("停用"); err != nil {
@@ -211,4 +211,36 @@ func TestSubsDialogToggleDoesNotCrashTheFrame(t *testing.T) {
 		t.Fatal("disabling everything should return to the welcome screen")
 	}
 	tt.Frame()
+}
+
+func TestSubsAndSettingsDialogsAreSeparate(t *testing.T) {
+	a := subsTestApp()
+	a.catalog = &source.Catalog{}
+	a.screen = screenHome
+	tt := ui.NewTester(a.View, 1200, 900)
+	if err := tt.Click("设置"); err != nil {
+		t.Fatal(err)
+	}
+	for _, text := range []string{"设置", "外观", "优先使用 mpv 播放", "完成"} {
+		if !tt.HasText(text) {
+			t.Fatalf("settings dialog missing %q in %q", text, tt.Texts())
+		}
+	}
+	if tt.HasText("订阅列表") || tt.HasText("添加订阅") {
+		t.Fatalf("settings dialog contains subscription controls: %q", tt.Texts())
+	}
+	if err := tt.Click("完成"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.Click("订阅"); err != nil {
+		t.Fatal(err)
+	}
+	for _, text := range []string{"订阅列表", "添加订阅", "配置 URL"} {
+		if !tt.HasText(text) {
+			t.Fatalf("subscription dialog missing %q in %q", text, tt.Texts())
+		}
+	}
+	if tt.HasText("优先使用 mpv 播放") {
+		t.Fatalf("subscription dialog contains settings: %q", tt.Texts())
+	}
 }

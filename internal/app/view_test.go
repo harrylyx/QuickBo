@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/harrylyx/QuickBo/internal/config"
@@ -19,7 +20,11 @@ func TestWelcomeMentionsEmptyShellAndJar(t *testing.T) {
 	if !tt.HasText("不执行 jar") {
 		t.Fatalf("missing jar note: %q", tt.Texts())
 	}
-	if err := tt.Click("添加配置"); err != nil {
+	joined := stringsJoin(tt.Texts())
+	if contains(joined, "一台不带片源") || contains(joined, "自备片源") {
+		t.Fatalf("welcome copy repeats the empty-shell claim: %q", tt.Texts())
+	}
+	if err := tt.Click("添加订阅"); err != nil {
 		t.Fatal(err)
 	}
 	if !tt.HasText("配置 URL") {
@@ -85,6 +90,35 @@ func TestBrowseShowsPosterCard(t *testing.T) {
 	tt := ui.NewTester(a.View, 1100, 720)
 	if !tt.HasText("示例影片") || !tt.HasText("演示源") || !tt.HasText("电影") {
 		t.Fatalf("texts %q", tt.Texts())
+	}
+}
+
+func TestHistoryCardDeletesWithoutOpeningPlayback(t *testing.T) {
+	a := New()
+	a.settingsPath = ""
+	a.catalog = &source.Catalog{}
+	a.lib = &library{Watch: []watchItem{{Key: "c\n1", Title: "海边的风"}}}
+	a.screen = screenHistory
+	a.sideSel = "history"
+	a.lastSide = "history"
+	tt := ui.NewTester(a.View, 1200, 800)
+	r, ok := tt.Find("海边的风")
+	if !ok {
+		t.Fatalf("missing history title: %q", tt.Texts())
+	}
+	tt.Move(r.X+r.W/2, r.Y+r.H/2)
+	tt.Frame()
+	if !tt.HasText("删除历史") {
+		t.Fatalf("missing delete badge: %q", tt.Texts())
+	}
+	if err := tt.Click("删除历史"); err != nil {
+		t.Fatal(err)
+	}
+	if len(a.lib.watches()) != 0 {
+		t.Fatalf("watch remains: %+v", a.lib.watches())
+	}
+	if a.screen != screenHistory || a.playTitle != "" {
+		t.Fatalf("delete also opened playback: screen %q title %q", a.screen, a.playTitle)
 	}
 }
 
@@ -167,6 +201,195 @@ func (otherFake) Resolve(context.Context, string, model.Episode) (model.Playable
 type errFake string
 
 func (e errFake) Error() string { return string(e) }
+
+func TestSidebarRemoveIsOnlyAHoverIcon(t *testing.T) {
+	a := New()
+	a.settingsPath = ""
+	a.catalog = &source.Catalog{Sites: []source.Source{cmsFake{}}}
+	a.screen = screenHome
+	a.sideSel = "home"
+	a.lastSide = "home"
+	tt := ui.NewTester(a.View, 1200, 800)
+	if _, ok := tt.Find("移除"); ok {
+		t.Fatalf("sidebar still shows a permanent remove label: %q", tt.Texts())
+	}
+	r, ok := tt.Find("演示源")
+	if !ok {
+		t.Fatalf("missing sidebar source: %q", tt.Texts())
+	}
+	tt.Move(r.X+r.W/2, r.Y+r.H/2)
+	tt.Frame()
+	if _, ok := tt.Find("移除源"); !ok {
+		t.Fatalf("missing hover remove icon: %q", tt.Texts())
+	}
+	if err := tt.Click("移除源"); err != nil {
+		t.Fatal(err)
+	}
+	if len(a.catalog.Sites) != 0 {
+		t.Fatalf("source was not removed: %d left", len(a.catalog.Sites))
+	}
+}
+
+func TestHomeRailHasNoDeleteMenu(t *testing.T) {
+	a := New()
+	a.settingsPath = ""
+	a.catalog = &source.Catalog{Sites: []source.Source{cmsFake{}}}
+	a.screen = screenHome
+	a.sideSel = "home"
+	a.lastSide = "home"
+	a.home = []homeLane{{Key: "hot", Name: "热门电影", Items: []model.Item{{ID: "1", Title: "海边的风"}}}}
+	tt := ui.NewTester(a.View, 1200, 800)
+	if _, ok := tt.Find("热门电影"); !ok {
+		t.Fatalf("missing rail: %q", tt.Texts())
+	}
+	if err := tt.RightClick("热门电影"); err != nil {
+		t.Fatal(err)
+	}
+	if menu := tt.Menu(); len(menu) != 0 {
+		t.Fatalf("home rail should not have a delete menu: %v", menu)
+	}
+}
+
+func TestDetailHidesSearchField(t *testing.T) {
+	a := New()
+	a.settingsPath = ""
+	a.catalog = &source.Catalog{Sites: []source.Source{cmsFake{}}}
+	a.siteKey = "c"
+	a.sideSel = "site:c"
+	a.lastSide = "site:c"
+	a.screen = screenHome
+	tt := ui.NewTester(a.View, 1200, 800)
+	if _, ok := tt.Find("搜索"); !ok {
+		t.Fatalf("home should show the search field: %q", tt.Texts())
+	}
+	a.screen = screenDetail
+	a.detailTitle = "海边的风"
+	a.detailItem = model.Item{ID: "1", Title: "海边的风"}
+	a.detail = &model.Detail{Title: "海边的风", Lines: []model.Line{
+		{Name: "默认", Episodes: []model.Episode{{Name: "第1集", URL: "about:blank"}}},
+	}}
+	a.playLine = "默认"
+	tt.Frame()
+	if _, ok := tt.Find("搜索"); ok {
+		t.Fatalf("detail should not show an inert search field: %q", tt.Texts())
+	}
+	if !tt.HasText("第1集") {
+		t.Fatalf("missing episode grid: %q", tt.Texts())
+	}
+}
+
+func TestLoadErrorOffersRetryAndEmptyHistoryOffersHome(t *testing.T) {
+	a := New()
+	a.settingsPath = ""
+	a.catalog = &source.Catalog{}
+	a.screen = screenHome
+	a.sideSel = "home"
+	a.lastSide = "home"
+	a.loadErr = "读取失败"
+	tt := ui.NewTester(a.View, 1200, 800)
+	if !tt.HasText("重试订阅") {
+		t.Fatalf("missing retry action: %q", tt.Texts())
+	}
+	if err := tt.Click("重试订阅"); err != nil {
+		t.Fatal(err)
+	}
+	if !a.adding || a.loadErr != "" {
+		t.Fatalf("retry did not open subscriptions: adding=%v err=%q", a.adding, a.loadErr)
+	}
+
+	b := New()
+	b.settingsPath = ""
+	b.catalog = &source.Catalog{}
+	b.screen = screenHistory
+	b.sideSel = "history"
+	b.lastSide = "history"
+	history := ui.NewTester(b.View, 1200, 800)
+	if !history.HasText("去首页") {
+		t.Fatalf("missing empty-state action: %q", history.Texts())
+	}
+	if err := history.Click("去首页"); err != nil {
+		t.Fatal(err)
+	}
+	if b.screen != screenHome || b.sideSel != "home" {
+		t.Fatalf("empty-state action did not go home: %q / %q", b.screen, b.sideSel)
+	}
+}
+
+func TestStatColorEncodesLatencyAndFailure(t *testing.T) {
+	th := cinemaDark()
+	same := func(x, y ui.Color) bool {
+		return x.R == y.R && x.G == y.G && x.B == y.B && x.A == y.A
+	}
+	cases := []struct {
+		stat sourceStat
+		want ui.Color
+	}{
+		{sourceStat{Delay: 120}, th.Success},
+		{sourceStat{Delay: 500}, th.Warning},
+		{sourceStat{Delay: 900}, th.TextMuted},
+		{sourceStat{Delay: -1}, th.Danger},
+		{sourceStat{Err: "超时"}, th.Danger},
+		{sourceStat{}, th.TextMuted},
+	}
+	for _, tc := range cases {
+		if got := statColor(th, tc.stat); !same(got, tc.want) {
+			t.Fatalf("stat %+v -> %+v, want %+v", tc.stat, got, tc.want)
+		}
+	}
+}
+
+func TestChromeFadeIsBrief(t *testing.T) {
+	fade := chromeFade(8)
+	if fade.Duration != 200*time.Millisecond || fade.ExitDuration != 160*time.Millisecond {
+		t.Fatalf("unexpected fade durations: %+v", fade)
+	}
+	if fade.Enter == nil || fade.Exit == nil || fade.Enter.Opacity != 0 || fade.Exit.Opacity != 0 {
+		t.Fatalf("missing fade endpoints: %+v", fade)
+	}
+}
+
+func TestDetailLoadingUsesDetailSkeletonNotListGrid(t *testing.T) {
+	a := New()
+	a.settingsPath = ""
+	a.catalog = &source.Catalog{}
+	a.screen = screenDetail
+	a.sideSel = "home"
+	a.lastSide = "home"
+	a.siteKey = "c"
+	a.detailTitle = "Doctor X：白色黑手党时代"
+	a.detailItem = model.Item{ID: "1", Title: "Doctor X：白色黑手党时代"}
+	a.detail = nil
+	a.detailLoading = true
+	a.offers = []playOffer{{SiteKey: "c", SiteName: "演示源", ItemID: "1", Clarity: 10}}
+	tt := ui.NewTester(a.View, 1200, 800)
+	if !tt.HasText("Doctor X：白色黑手党时代") {
+		t.Fatalf("missing detail title: %q", tt.Texts())
+	}
+	if tt.HasText("正在加载…") {
+		t.Fatalf("detail still renders the list skeleton: %q", tt.Texts())
+	}
+	if !tt.HasText("正在读取各片源的线路和清晰度…") || !tt.HasText("片源") || !tt.HasText("演示源") {
+		t.Fatalf("missing detail loading state: %q", tt.Texts())
+	}
+
+	b := New()
+	b.settingsPath = ""
+	b.catalog = &source.Catalog{}
+	b.screen = screenDetail
+	b.sideSel = "home"
+	b.lastSide = "home"
+	b.siteKey = "c"
+	b.detailTitle = "单源影片"
+	b.detail = nil
+	b.detailLoading = true
+	single := ui.NewTester(b.View, 1200, 800)
+	if single.HasText("正在加载…") {
+		t.Fatalf("single-source detail still renders the list skeleton: %q", single.Texts())
+	}
+	if !single.HasText("正在读取影片详情…") {
+		t.Fatalf("missing single-source loading state: %q", single.Texts())
+	}
+}
 
 func stringsJoin(ss []string) string {
 	out := ""

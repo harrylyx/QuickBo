@@ -132,6 +132,22 @@ func (l *library) touchProgress(key string, pos, dur float64) {
 	}
 }
 
+func (l *library) removeWatch(key string) {
+	if l == nil || key == "" {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for i := range l.Watch {
+		if l.Watch[i].Key != key {
+			continue
+		}
+		l.Watch = append(l.Watch[:i], l.Watch[i+1:]...)
+		l.save()
+		return
+	}
+}
+
 func (l *library) hasFav(key string) bool {
 	if l == nil {
 		return false
@@ -162,6 +178,22 @@ func (l *library) toggleFav(item favItem) bool {
 	l.Favs = append([]favItem{item}, l.Favs...)
 	l.save()
 	return true
+}
+
+func (l *library) removeFav(key string) {
+	if l == nil || key == "" {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for i := range l.Favs {
+		if l.Favs[i].Key != key {
+			continue
+		}
+		l.Favs = append(l.Favs[:i], l.Favs[i+1:]...)
+		l.save()
+		return
+	}
 }
 
 func mediaKey(site, id string) string {

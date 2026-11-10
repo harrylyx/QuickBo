@@ -1,6 +1,8 @@
 package app
 
 import (
+	"time"
+
 	"github.com/egoist/mygo/ui"
 )
 
@@ -42,7 +44,8 @@ func (a *App) viewRules(c *ui.Context, th *ui.Theme) {
 				return
 			}
 			if len(a.homeRules) == 0 {
-				a.emptyState(c, th, "没有分类", "添加一个分类，写上名称和关键字。")
+				a.emptyState(c, th, "没有分类", "添加一个分类，写上名称和关键字。",
+					stateAction{label: "添加分类", primary: true, click: a.addRule})
 				return
 			}
 			for i := 0; i < len(a.homeRules); i++ {
@@ -60,22 +63,22 @@ func (a *App) ruleRow(c *ui.Context, th *ui.Theme, i int) bool {
 	}
 	id := a.homeRules[i].ID
 	keep := true
-	ui.Column(c.Key("rule:"+id)).FillWidth().Padding(12, 14).Radius(8).Background(th.Surface).Gap(8).Children(func() {
-		ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
+	ui.Column(c.Key("rule:"+id)).FillWidth().Padding(10, 12).Radius(8).Background(th.Surface).Gap(6).Children(func() {
+		ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(6).Children(func() {
 			name := ui.TextInput(c.Key("rule-name:"+id), &a.ruleNames[i]).Placeholder("分类名称").Width(220)
 			a.watchRule(name, i, i*2)
 			ui.Column(c).Grow(1)
-			if ui.Button(c.Key("rule-up:"+id), "上移").Clicked() {
+			if a.ruleIconBtn(c, th, "rule-up:"+id, iconUp, "上移", th.TextMuted).Clicked() {
 				a.moveRule(i, -1)
 				keep = false
 				return
 			}
-			if ui.Button(c.Key("rule-down:"+id), "下移").Clicked() {
+			if a.ruleIconBtn(c, th, "rule-down:"+id, iconDown, "下移", th.TextMuted).Clicked() {
 				a.moveRule(i, 1)
 				keep = false
 				return
 			}
-			if ui.Button(c.Key("rule-drop:"+id), "删除").Clicked() {
+			if a.ruleIconBtn(c, th, "rule-drop:"+id, iconTrash, "删除", th.Danger).Clicked() {
 				a.deleteRule(i)
 				keep = false
 			}
@@ -87,6 +90,20 @@ func (a *App) ruleRow(c *ui.Context, th *ui.Theme, i int) bool {
 		a.watchRule(words, i, i*2+1)
 	})
 	return keep
+}
+
+func (a *App) ruleIconBtn(c *ui.Context, th *ui.Theme, key string, glyph *ui.SVG, tip string, fg ui.Color) ui.Element {
+	b := ui.Column(c.Key(key)).Size(30, 30).Radius(15).Center().Cursor(ui.CursorPointer).Tooltip(tip).Label(tip)
+	switch {
+	case b.Pressed():
+		b.Background(fg.Alpha(0.22))
+	case b.Hovered():
+		b.Background(fg.Alpha(0.12))
+	}
+	b.Transition(ui.ElementTransition{Duration: 150 * time.Millisecond}).Children(func() {
+		ui.Icon(c, glyph).Size(16, 16).TextColor(fg)
+	})
+	return b
 }
 
 // TextInput edits the draft in place. Nothing is committed until 保存, so

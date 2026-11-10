@@ -211,7 +211,9 @@ func (a *App) paintStage(c *ui.Context, th *ui.Theme, embed bool) {
 		}
 		if a.playErr != "" {
 			ui.Column(c).Absolute().Left(24).Right(24).Bottom(108).Children(func() {
-				a.note(c, th, a.playErr, true)
+				a.noteWithActions(c, th, a.playErr, true,
+					stateAction{label: "重试", primary: true, click: a.retryPlay},
+					stateAction{label: "用 mpv 播放", click: a.openExternal})
 			})
 		}
 		if a.showDrawer {
@@ -236,28 +238,30 @@ func (a *App) thinProgress(c *ui.Context, th *ui.Theme) {
 	if frac > 1 {
 		frac = 1
 	}
-	ui.Box(c).Absolute().Left(0).Right(0).Bottom(0).Height(2).Background(ui.RGBA(255, 255, 255, 0.18)).Children(func() {
+	ui.Box(c).Absolute().Left(0).Right(0).Bottom(0).Height(2).Background(th.AccentText.Alpha(0.18)).Children(func() {
 		ui.Box(c).Height(2).WidthPercent(float32(frac) * 100).Background(th.Accent)
 	})
 }
 
 func (a *App) playerChrome(c *ui.Context, th *ui.Theme) {
-	white := ui.Hex("#fafafa")
+	white := th.AccentText
 	title, episode := a.overlayTitle()
 	ui.Column(c).Absolute().Left(0).Right(0).Top(0).Padding(20, 28).Gap(2).
-		Gradient(ui.RGBA(0, 0, 0, 0.78), ui.Transparent, 180).Children(func() {
+		Gradient(ui.RGBA(0, 0, 0, 0.78), ui.Transparent, 180).
+		Transition(chromeFade(-8)).Children(func() {
 		ui.Row(c).Gap(12).AlignItems(ui.Center).Children(func() {
 			a.iconBtn(c, "back", iconBack, "返回", 44, 26, white, func() { a.back() })
 			ui.Column(c).Gap(2).Shrink(1).Children(func() {
-				ui.Text(c, title).FontSize(18).Bold().TextColor(white).SingleLine()
+				ui.Text(c, title).FontSize(fontTitle).Bold().TextColor(white).SingleLine()
 				if episode != "" {
-					ui.Text(c, episode).FontSize(13).TextColor(ui.RGBA(255, 255, 255, 0.78)).SingleLine()
+					ui.Text(c, episode).FontSize(fontCaption).TextColor(th.AccentText.Alpha(0.78)).SingleLine()
 				}
 			})
 		})
 	})
 	ui.Column(c).Absolute().Left(0).Right(0).Bottom(0).Padding(20, 28, 18, 28).Gap(12).
-		Gradient(ui.Transparent, ui.RGBA(0, 0, 0, 0.88), 180).Children(func() {
+		Gradient(ui.Transparent, ui.RGBA(0, 0, 0, 0.88), 180).
+		Transition(chromeFade(8)).Children(func() {
 		a.seekBar(c, th)
 		ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
 			glyph := iconPlay
@@ -290,10 +294,10 @@ func (a *App) playerChrome(c *ui.Context, th *ui.Theme) {
 				a.rememberVolume()
 			}
 			ui.Column(c).Grow(1)
-			a.rateBtn(c)
+			a.rateBtn(c, th)
 			a.iconBtn(c, "eps", iconList, "选集", 44, 26, white, func() { a.showDrawer = !a.showDrawer })
 			a.iconBtn(c, "full", iconFull, "全屏", 44, 26, white, a.toggleFull)
-			a.iconBtn(c, "mpv", iconPlay, "用 mpv 播放", 44, 26, white, a.openExternal)
+			a.iconBtn(c, "mpv", iconExternal, "用 mpv 播放", 44, 26, white, a.openExternal)
 		})
 		if a.showRates {
 			ui.Row(c).Gap(6).Children(func() {
@@ -320,14 +324,24 @@ func (a *App) playerChrome(c *ui.Context, th *ui.Theme) {
 	})
 }
 
-func (a *App) rateBtn(c *ui.Context) {
+func chromeFade(y float32) ui.ElementTransition {
+	return ui.ElementTransition{
+		Duration:     200 * time.Millisecond,
+		ExitDuration: 160 * time.Millisecond,
+		Ease:         ui.EaseOut,
+		Enter:        &ui.Motion{Y: y, Opacity: 0, Scale: 1},
+		Exit:         &ui.Motion{Y: y, Opacity: 0, Scale: 1},
+	}
+}
+
+func (a *App) rateBtn(c *ui.Context, th *ui.Theme) {
 	label := trimRate(a.rate)
 	b := ui.Column(c.Key("speed")).Padding(6, 8).Radius(8).OnClick(func() { a.showRates = !a.showRates }).Cursor(ui.CursorPointer)
 	if b.Hovered() {
-		b.Background(ui.RGBA(255, 255, 255, 0.14))
+		b.Background(th.AccentText.Alpha(0.14))
 	}
 	b.Tooltip("倍速").Label("倍速").Children(func() {
-		ui.Text(c, label).FontSize(13).Bold().TextColor(ui.Hex("#fafafa"))
+		ui.Text(c, label).FontSize(fontCaption).Bold().TextColor(th.AccentText)
 	})
 }
 
@@ -368,7 +382,7 @@ func (a *App) seekBar(c *ui.Context, th *ui.Theme) {
 		buffering = a.player.Buffering()
 	}
 	ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
-		ui.Text(c, clock(pos)).FontSize(12).TextColor(ui.Hex("#fafafa"))
+		ui.Text(c, clock(pos)).FontSize(fontCaption).TextColor(th.AccentText)
 		// The hit target is taller than the painted track so the tooltip
 		// and the click both land on the same element.
 		hit := ui.Box(c.Key("seek")).Height(28).Grow(1)
@@ -384,7 +398,7 @@ func (a *App) seekBar(c *ui.Context, th *ui.Theme) {
 			}
 		}
 		hit.Children(func() {
-			ui.Box(c).Absolute().Left(0).Right(0).Top(12).Height(4).Radius(2).Background(ui.RGBA(255, 255, 255, 0.22))
+			ui.Box(c).Absolute().Left(0).Right(0).Top(12).Height(4).Radius(2).Background(th.AccentText.Alpha(0.22))
 			// mygo's player reports Buffering, not a buffered time range.
 			// While it is filling, the track ahead of the playhead is drawn
 			// lighter so the wait is visible; it is not a measured cache.
@@ -393,7 +407,7 @@ func (a *App) seekBar(c *ui.Context, th *ui.Theme) {
 				if ahead > w {
 					ahead = w
 				}
-				ui.Box(c).Absolute().Left(0).Top(12).Height(4).Width(ahead).Radius(2).Background(ui.RGBA(255, 255, 255, 0.38))
+				ui.Box(c).Absolute().Left(0).Top(12).Height(4).Width(ahead).Radius(2).Background(th.AccentText.Alpha(0.38))
 			}
 			ui.Box(c).Absolute().Left(0).Top(12).Height(4).Width(w * float32(frac)).Radius(2).Background(th.Accent)
 			px, _, hover := hit.PointerPosition()
@@ -408,7 +422,7 @@ func (a *App) seekBar(c *ui.Context, th *ui.Theme) {
 					left = w - tipW
 				}
 				ui.Column(c).Absolute().Left(left).Top(0).Width(tipW).Height(18).Radius(4).Background(ui.RGBA(0, 0, 0, 0.82)).Center().Children(func() {
-					ui.Text(c, clock(at)).FontSize(12).TextColor(ui.Hex("#FAFAFA"))
+					ui.Text(c, clock(at)).FontSize(fontCaption).TextColor(th.AccentText)
 				})
 			}
 		})
@@ -426,23 +440,23 @@ func (a *App) seekBar(c *ui.Context, th *ui.Theme) {
 			if buffering || (a.player != nil && !a.player.Ready()) {
 				label = "缓冲中"
 			}
-			ui.Text(c, label).FontSize(12).TextColor(ui.Hex("#fafafa"))
+			ui.Text(c, label).FontSize(fontCaption).TextColor(th.AccentText)
 		} else {
 			label := clock(dur)
 			if buffering {
 				label = "缓冲中"
 			}
-			ui.Text(c, label).FontSize(12).TextColor(ui.Hex("#fafafa"))
+			ui.Text(c, label).FontSize(fontCaption).TextColor(th.AccentText)
 		}
 	})
 }
 
 func (a *App) episodeDrawer(c *ui.Context, th *ui.Theme) {
 	ui.Column(c).Absolute().Top(0).Right(0).Bottom(0).Width(300).Padding(20, 18).Gap(12).
-		Background(ui.Hex("#0E0E0E")).Children(func() {
+		Background(stageInk(false)).Children(func() {
 		ui.Row(c).AlignItems(ui.Center).Children(func() {
-			ui.Text(c, "选集").FontSize(16).Bold().TextColor(ui.Hex("#FAFAFA")).Grow(1)
-			a.iconBtn(c, "close-eps", iconBack, "关闭", 44, 22, ui.Hex("#FAFAFA"), func() { a.showDrawer = false })
+			ui.Text(c, "选集").FontSize(fontTitle).Bold().TextColor(th.AccentText).Grow(1)
+			a.iconBtn(c, "close-eps", iconBack, "关闭", 44, 22, th.AccentText, func() { a.showDrawer = false })
 		})
 		if a.detail == nil {
 			ui.Text(c, "没有剧集列表").TextColor(th.TextMuted)
@@ -476,9 +490,9 @@ func (a *App) iconBtn(c *ui.Context, key string, glyph *ui.SVG, tip string, box,
 	b := ui.Column(c.Key(key)).Size(box, box).Radius(box / 2).Center().OnClick(click).Cursor(ui.CursorPointer).Tooltip(tip).Label(tip)
 	switch {
 	case b.Pressed():
-		b.Background(ui.RGBA(255, 255, 255, 0.22))
+		b.Background(fg.Alpha(0.22))
 	case b.Hovered():
-		b.Background(ui.RGBA(255, 255, 255, 0.12))
+		b.Background(fg.Alpha(0.12))
 	}
 	b.Transition(ui.ElementTransition{Duration: 150 * time.Millisecond}).Children(func() {
 		ui.Icon(c, glyph).Size(glyphPx, glyphPx).TextColor(fg)

@@ -2,6 +2,7 @@ package app
 
 import (
 	"strings"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/harrylyx/QuickBo/internal/model"
@@ -17,7 +18,7 @@ func (a *App) viewHome(c *ui.Context, th *ui.Theme) {
 		ui.Column(c).Padding(8, pagePad, 28, pagePad).Gap(28).Children(func() {
 			a.viewContinue(c, th)
 			if searching {
-				ui.Text(c, "搜索「"+strings.TrimSpace(a.committed)+"」").FontSize(26).Bold()
+				ui.Text(c, "搜索「"+strings.TrimSpace(a.committed)+"」").FontSize(fontHero).Bold()
 			}
 			if a.homeSearching && len(lanes) == 0 {
 				a.loadingRow(c, th, "正在搜索全部片源…")
@@ -30,10 +31,23 @@ func (a *App) viewHome(c *ui.Context, th *ui.Theme) {
 			}
 			if len(lanes) == 0 {
 				title, body := "没有节目", "这些源的第一页是空的。"
+				actions := []stateAction{
+					{label: "重新采集", primary: true, click: a.recollect},
+					{label: "管理订阅", click: a.openSubs},
+				}
 				if searching {
 					title, body = "没有结果", "换个关键词，或等源检查完再搜。"
+					actions = []stateAction{
+						{label: "清空搜索", primary: true, click: func() {
+							a.query = ""
+							a.committed = ""
+							a.homeHits = nil
+							a.homeSearching = false
+						}},
+						{label: "重新采集", click: a.recollect},
+					}
 				}
-				a.emptyState(c, th, title, body)
+				a.emptyState(c, th, title, body, actions...)
 				return
 			}
 			for _, lane := range lanes {
@@ -48,17 +62,20 @@ func (a *App) viewHome(c *ui.Context, th *ui.Theme) {
 
 func (a *App) homeRail(c *ui.Context, th *ui.Theme, lane homeLane) {
 	row := ui.Column(c.Key("rail:" + lane.Key)).Gap(12)
-	row.ContextMenu(func(menu *ui.Menu) {
-		if menu.Item("删除").Chosen() {
-			a.dropSite(lane.Key)
-		}
-	})
 	row.Children(func() {
 		ui.Row(c).AlignItems(ui.Center).Gap(12).Children(func() {
-			ui.Text(c, lane.Name).FontSize(18).Bold().SingleLine()
+			ui.Text(c, lane.Name).FontSize(fontTitle).Bold().SingleLine()
 			ui.Column(c).Grow(1)
-			ui.Text(c.Key("all:"+lane.Key), "全部").FontSize(13).TextColor(th.TextMuted).Cursor(ui.CursorPointer).OnClick(func() {
-				a.selectSite(lane.Key)
+			link := ui.Row(c.Key("all:" + lane.Key)).Gap(4).AlignItems(ui.Center).
+				OnClick(func() { a.selectSite(lane.Key) }).Cursor(ui.CursorPointer).
+				Tooltip("查看全部分类").Label("全部")
+			fg := th.TextMuted
+			if link.Hovered() {
+				fg = th.Text
+			}
+			link.Transition(ui.ElementTransition{Duration: 150 * time.Millisecond}).Children(func() {
+				ui.Text(c, "全部").FontSize(fontCaption).TextColor(fg).SingleLine()
+				ui.Icon(c, iconChevronRight).Size(12, 12).TextColor(fg)
 			})
 		})
 		if len(lane.Items) == 0 {
@@ -85,16 +102,18 @@ func (a *App) railCard(c *ui.Context, th *ui.Theme, siteKey string, item model.I
 		a.openDetail(item)
 	}
 	card := ui.Column(c.Key("rail:" + siteKey + ":" + item.ID)).Width(w).Gap(8).OnClick(open).Cursor(ui.CursorPointer)
+	hot := card.Hovered()
 	card.Children(func() {
-		frame := ui.Column(c).Width(w).Height(h).Radius(8).Clip().Background(th.Surface)
+		frame := ui.Column(c.Key("rail-frame:" + siteKey + ":" + item.ID)).Width(w).Height(h).Radius(8).Clip().Background(th.Surface)
+		a.animateCard(card, frame, hot, a.light)
 		frame.Children(func() {
-			a.cover(c, th, item.Pic, item.Title, w, h, open, card.Hovered())
+			a.cover(c, th, item.Pic, item.Title, w, h, open, hot)
 			if item.Remarks != "" {
 				ui.Column(c).Absolute().Left(8).Top(8).Padding(3, 6).Radius(4).Background(ui.RGBA(0, 0, 0, 0.62)).Children(func() {
-					ui.Text(c, item.Remarks).FontSize(12).TextColor(ui.Hex("#FAFAFA")).SingleLine()
+					ui.Text(c, item.Remarks).FontSize(fontCaption).TextColor(th.AccentText).SingleLine()
 				})
 			}
 		})
-		ui.Text(c, item.Title).FontSize(14).SingleLine()
+		ui.Text(c, item.Title).FontSize(fontBody).SingleLine()
 	})
 }

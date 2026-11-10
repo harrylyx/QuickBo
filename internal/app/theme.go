@@ -2,6 +2,41 @@ package app
 
 import "github.com/egoist/mygo/ui"
 
+// One type scale for the whole shell; the welcome wordmark is the only
+// deliberate exception at 60px.
+const (
+	fontCaption  = 12
+	fontBody     = 14
+	fontTitle    = 16
+	fontHeadline = 20
+	fontHero     = 28
+)
+
+func selectionColors(th *ui.Theme, on, hovered bool) (bg, fg ui.Color) {
+	bg, fg = th.SurfaceHover, th.Text
+	if on {
+		return th.Accent, th.AccentText
+	}
+	if hovered {
+		bg = th.SurfacePressed
+	}
+	return bg, fg
+}
+
+func cardShadow(light, hot bool) (y, blur float32, ink ui.Color) {
+	alpha := float32(0.12)
+	if hot {
+		alpha = 0.30
+	}
+	if light {
+		alpha *= 0.45
+	}
+	if hot {
+		return 10, 24, ui.RGBA(0, 0, 0, alpha)
+	}
+	return 2, 6, ui.RGBA(0, 0, 0, alpha)
+}
+
 // Themes follow mygo's theme object. Dark mode is an OLED cinema field:
 // near-black surfaces, neutral selection, and a single play-red accent
 // reserved for the primary action, the active mark, and progress.
@@ -30,7 +65,7 @@ func cinemaDark() *ui.Theme {
 	t.FocusRingOffset = 2
 	t.Radius = 8
 	t.Spacing = 4
-	t.FontSize = 15
+	t.FontSize = fontBody
 	t.Inverse = ui.Hex("#F5F5F5")
 	t.InverseText = ui.Hex("#0A0A0A")
 	return &t
@@ -59,7 +94,7 @@ func cinemaLight() *ui.Theme {
 	t.FocusRingOffset = 2
 	t.Radius = 8
 	t.Spacing = 4
-	t.FontSize = 15
+	t.FontSize = fontBody
 	t.Inverse = ui.Hex("#18181B")
 	t.InverseText = ui.Hex("#FAFAFA")
 	return &t

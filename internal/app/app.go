@@ -56,14 +56,16 @@ type App struct {
 	catalog *source.Catalog
 	// cfgRef is the cache identity of the current load: a single ref, or the
 	// newline-joined enabled refs when several subscriptions are active.
-	cfgRef   string
-	subs     []subscription
-	groupOf  map[string]string
-	loading  bool
-	loadErr  string
-	loadNote string
-	adding   bool
-	urlDraft string
+	cfgRef         string
+	subs           []subscription
+	groupOf        map[string]string
+	loading        bool
+	loadErr        string
+	loadNote       string
+	adding         bool
+	settingsOpen   bool
+	welcomeEntered bool
+	urlDraft       string
 
 	loadCtx    context.Context
 	loadCancel context.CancelFunc
@@ -89,6 +91,7 @@ type App struct {
 
 	detail        *model.Detail
 	detailTitle   string
+	detailItem    model.Item
 	detailErr     string
 	detailLoading bool
 
@@ -554,6 +557,7 @@ func (a *App) openDetail(item model.Item) {
 	a.offers = nil
 	a.detail = nil
 	a.detailTitle = item.Title
+	a.detailItem = item
 	a.detailErr = ""
 	a.detailLoading = true
 	a.linePick = 0
