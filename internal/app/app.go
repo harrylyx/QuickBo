@@ -85,7 +85,9 @@ type App struct {
 	liveLoading bool
 
 	preferExternal bool
+	light          bool
 	volume         float64
+	linePick       int
 
 	grid     ui.GridState
 	selected int
@@ -102,6 +104,7 @@ type App struct {
 type savedSettings struct {
 	Config         string   `json:"config"`
 	PreferExternal bool     `json:"preferExternal"`
+	Light          bool     `json:"light,omitempty"`
 	Volume         *float64 `json:"volume,omitempty"`
 }
 
@@ -185,6 +188,7 @@ func (a *App) LoadSaved() {
 		return
 	}
 	a.preferExternal = s.PreferExternal
+	a.light = s.Light
 	if s.Volume != nil {
 		a.volume = *s.Volume
 	}
@@ -341,6 +345,7 @@ func (a *App) openDetail(item model.Item) {
 	a.detailTitle = item.Title
 	a.detailErr = ""
 	a.detailLoading = true
+	a.linePick = 0
 	a.closePlayer()
 	id := item.ID
 	key := a.siteKey
@@ -651,7 +656,7 @@ func (a *App) saveSettings() {
 		return
 	}
 	vol := a.volume
-	s := savedSettings{Config: a.cfgRef, PreferExternal: a.preferExternal, Volume: &vol}
+	s := savedSettings{Config: a.cfgRef, PreferExternal: a.preferExternal, Light: a.light, Volume: &vol}
 	b, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return
