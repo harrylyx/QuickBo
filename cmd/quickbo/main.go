@@ -20,10 +20,10 @@ func main() {
 	mygo.App.WhenReady(func() {
 		win := mygo.NewWindow(mygo.WindowOptions{
 			Title:     "QuickBo",
-			Width:     1180,
-			Height:    760,
-			MinWidth:  880,
-			MinHeight: 560,
+			Width:     1440,
+			Height:    900,
+			MinWidth:  960,
+			MinHeight: 640,
 			Content:   ui.View(application.View),
 		})
 		application.Attach(win)

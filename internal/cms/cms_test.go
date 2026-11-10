@@ -139,6 +139,28 @@ func TestGBKJSON(t *testing.T) {
 	}
 }
 
+func TestProtocolRelativePicture(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"code":1,"page":1,"pagecount":1,"list":[{"vod_id":1,"vod_name":"相对","vod_pic":"//cdn.example/a.jpg","vod_play_from":"m","vod_play_url":"1$/v/1"}]}`))
+	}))
+	defer srv.Close()
+	c := New(srv.URL + "/api.php/provide/vod/")
+	page, err := c.List(context.Background(), "", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.Items[0].Pic != "https://cdn.example/a.jpg" {
+		t.Fatalf("pic %q", page.Items[0].Pic)
+	}
+	d, err := c.Detail(context.Background(), "1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(d.Lines[0].Episodes[0].URL, "http") || !strings.HasSuffix(d.Lines[0].Episodes[0].URL, "/v/1") {
+		t.Fatalf("ep %q", d.Lines[0].Episodes[0].URL)
+	}
+}
+
 func TestStringIDsDoNotFailTheList(t *testing.T) {
 	body := []byte(`{"code":1,"list":[{"vod_id":"tv-1","vod_name":"甲"},{"vod_id":2,"vod_name":"乙"}]}`)
 	_, page, err := parseDocument(body)

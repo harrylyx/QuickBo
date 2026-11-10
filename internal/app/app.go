@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"image"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -56,17 +57,18 @@ type App struct {
 	adding   bool
 	urlDraft string
 
-	screen   string
-	sideSel  string
-	lastSide string
-	siteKey  string
-	cats     []model.Category
-	catID    string
-	page     model.Page
-	pageNum  int
-	query    string
-	listErr  string
-	listLoad bool
+	screen    string
+	sideSel   string
+	lastSide  string
+	siteKey   string
+	cats      []model.Category
+	catID     string
+	page      model.Page
+	pageNum   int
+	query     string
+	committed string
+	listErr   string
+	listLoad  bool
 
 	detail        *model.Detail
 	detailTitle   string
@@ -99,7 +101,15 @@ type App struct {
 	showDrawer     bool
 	showRates      bool
 	controlsUntil  time.Time
+	ptrX, ptrY     float32
+	ptrSeen        bool
+	savedVolume    float64
+	appliedVolume  float64
 	lib            *library
+
+	browseScroll ui.ScrollState
+	appending    bool
+	listAnchored bool
 
 	grid     ui.GridState
 	selected int
@@ -124,15 +134,17 @@ type savedSettings struct {
 // supplies one, or a previously saved address is restored.
 func New() *App {
 	a := &App{
-		screen:       screenWelcome,
-		volume:       1,
-		rate:         1,
-		lib:          loadLibrary(filepath.Dir(settingsPath())),
-		selected:     -1,
-		posters:      map[string]*ui.Bitmap{},
-		fetching:     map[string]bool{},
-		failed:       map[string]bool{},
-		settingsPath: settingsPath(),
+		screen:        screenWelcome,
+		volume:        1,
+		savedVolume:   1,
+		appliedVolume: 1,
+		rate:          1,
+		lib:           loadLibrary(filepath.Dir(settingsPath())),
+		selected:      -1,
+		posters:       map[string]*ui.Bitmap{},
+		fetching:      map[string]bool{},
+		failed:        map[string]bool{},
+		settingsPath:  settingsPath(),
 	}
 	a.grid.Selected = &a.selected
 	a.grid.Key = func(i int) any {
@@ -205,6 +217,8 @@ func (a *App) LoadSaved() {
 	a.light = s.Light
 	if s.Volume != nil {
 		a.volume = *s.Volume
+		a.savedVolume = a.volume
+		a.appliedVolume = a.volume
 	}
 	if strings.TrimSpace(s.Config) != "" {
 		a.Load(s.Config)
@@ -252,12 +266,18 @@ func (a *App) onSide() {
 	a.lastSide = a.sideSel
 	switch {
 	case a.sideSel == "home":
+		a.query = ""
+		a.committed = ""
 		a.screen = screenHome
 		a.closePlayer()
 	case a.sideSel == "history":
+		a.query = ""
+		a.committed = ""
 		a.screen = screenHistory
 		a.closePlayer()
 	case a.sideSel == "fav":
+		a.query = ""
+		a.committed = ""
 		a.screen = screenFav
 		a.closePlayer()
 	case strings.HasPrefix(a.sideSel, "site:"):
@@ -279,6 +299,7 @@ func (a *App) selectSite(key string) {
 	a.closePlayer()
 	a.fromLive = false
 	a.query = ""
+	a.committed = ""
 	a.page = model.Page{}
 	a.pageNum = 1
 	a.detail = nil
@@ -321,6 +342,7 @@ func (a *App) pickCat(id string) {
 	a.catID = id
 	a.pageNum = 1
 	a.query = ""
+	a.committed = ""
 	a.loadList()
 }
 
@@ -331,9 +353,14 @@ func (a *App) loadList() {
 	}
 	a.listLoad = true
 	a.listErr = ""
+	a.appending = false
 	a.page = model.Page{}
 	a.selected = -1
-	cat, page, q := a.catID, a.pageNum, strings.TrimSpace(a.query)
+	a.listAnchored = a.pageNum <= 1
+	if a.pageNum <= 1 {
+		a.browseScroll.Y = 0
+	}
+	cat, page, q := a.catID, a.pageNum, strings.TrimSpace(a.committed)
 	key := a.siteKey
 	gen := a.bump()
 	go func() {
@@ -359,6 +386,71 @@ func (a *App) loadList() {
 			}
 		})
 	}()
+}
+
+func (a *App) loadMore() {
+	src := a.current()
+	if src == nil || a.listLoad || a.appending || !a.page.HasNext() {
+		return
+	}
+	a.appending = true
+	next := a.pageNum + 1
+	if next < 1 {
+		next = 2
+	}
+	cat, q := a.catID, strings.TrimSpace(a.committed)
+	key := a.siteKey
+	gen := a.gen
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+		defer cancel()
+		var (
+			pg  model.Page
+			err error
+		)
+		if q != "" {
+			pg, err = src.Search(ctx, q, next)
+		} else {
+			pg, err = src.List(ctx, cat, next)
+		}
+		a.post(func() {
+			if a.gen != gen || a.siteKey != key {
+				a.appending = false
+				return
+			}
+			a.appending = false
+			if err != nil {
+				a.listErr = err.Error()
+				return
+			}
+			if len(pg.Items) == 0 {
+				a.page.PageCount = a.pageNum
+				return
+			}
+			a.pageNum = next
+			a.page.Items = append(a.page.Items, pg.Items...)
+			if pg.Page > 0 {
+				a.page.Page = pg.Page
+			}
+			if pg.PageCount > 0 {
+				a.page.PageCount = pg.PageCount
+			}
+			if pg.Total > 0 {
+				a.page.Total = pg.Total
+			}
+		})
+	}()
+}
+
+func (a *App) maybeLoadMore() {
+	if a.listLoad || a.appending || !a.page.HasNext() {
+		return
+	}
+	near := a.browseScroll.MaxY > 48 && a.browseScroll.Y >= a.browseScroll.MaxY-320
+	short := a.browseScroll.MaxY <= 1 && len(a.page.Items) > 0 && len(a.page.Items) < 36
+	if near || short {
+		a.loadMore()
+	}
 }
 
 func (a *App) openDetail(item model.Item) {
@@ -396,6 +488,7 @@ func (a *App) openDetail(item model.Item) {
 				d.Pic = item.Pic
 			}
 			a.detail = &d
+			a.linePick = model.PreferredLine(d.Lines)
 		})
 	}()
 }
@@ -432,6 +525,11 @@ func (a *App) playEpisode(line string, ep model.Episode) {
 				pb.Headers = mergeHeaders(pb.Headers, h)
 			}
 		}
+		if err == nil && !player.IsDirect(pb.URL) {
+			if u, ok := player.Unwrap(ctx, pb.URL, pb.Headers); ok && u != "" {
+				pb.URL = u
+			}
+		}
 		title := ep.Name
 		a.post(func() {
 			if a.gen != gen || a.siteKey != key {
@@ -454,9 +552,29 @@ func (a *App) playEpisode(line string, ep model.Episode) {
 func (a *App) playChannel(ch live.Channel) {
 	a.playLine = ch.Group
 	a.playTitle = ch.Name
-	a.startPlay(ch.Name, ch.URL, map[string]string{"User-Agent": httpx.TVBoxUA}, true)
-	a.screen = screenLive
 	a.fromLive = true
+	a.screen = screenLive
+	a.playLoading = true
+	a.playErr = ""
+	a.closePlayer()
+	headers := map[string]string{"User-Agent": httpx.TVBoxUA}
+	raw := ch.URL
+	name := ch.Name
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+		defer cancel()
+		if !player.IsDirect(raw) {
+			if u, ok := player.Unwrap(ctx, raw, headers); ok && u != "" {
+				raw = u
+			}
+		}
+		a.post(func() {
+			a.playLoading = false
+			a.startPlay(name, raw, headers, true)
+			a.screen = screenLive
+			a.fromLive = true
+		})
+	}()
 }
 
 func (a *App) startPlay(title, raw string, headers map[string]string, fromLive bool) {
@@ -529,6 +647,8 @@ func (a *App) selectLive(i int) {
 	a.liveIndex = i
 	a.sideSel = "live:" + strconv.Itoa(i)
 	a.lastSide = a.sideSel
+	a.query = ""
+	a.committed = ""
 	a.screen = screenLive
 	a.closePlayer()
 	a.fromLive = true
@@ -596,22 +716,27 @@ func (a *App) pickFile() {
 }
 
 func (a *App) poster(url string) *ui.Bitmap {
-	url = strings.TrimSpace(url)
+	url = model.ResolveURL("", url)
 	if url == "" || a.failed[url] {
 		return nil
 	}
 	if bmp, ok := a.posters[url]; ok {
 		return bmp
 	}
-	if a.win == nil || a.fetching[url] || len(a.fetching) >= 6 {
+	if a.win == nil || a.fetching[url] || len(a.fetching) >= 8 {
 		return nil
 	}
 	a.fetching[url] = true
 	win := a.win
+	headers := a.imageHeaders()
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
-		body, _, err := httpx.Get(ctx, nil, url, map[string]string{"User-Agent": httpx.BrowserUA}, 4<<20)
+		body, _, err := httpx.Get(ctx, nil, url, headers, 4<<20)
+		if err != nil && headers["Referer"] != "" {
+			retry := map[string]string{"User-Agent": httpx.BrowserUA, "Accept": "image/*,*/*"}
+			body, _, err = httpx.Get(ctx, nil, url, retry, 4<<20)
+		}
 		var img image.Image
 		if err == nil {
 			img, _, err = image.Decode(bytes.NewReader(body))
@@ -633,6 +758,19 @@ func (a *App) poster(url string) *ui.Bitmap {
 		})
 	}()
 	return nil
+}
+
+func (a *App) imageHeaders() map[string]string {
+	h := map[string]string{
+		"User-Agent": httpx.BrowserUA,
+		"Accept":     "image/avif,image/webp,image/*,*/*",
+	}
+	if m, ok := a.currentMeta(); ok {
+		if u, err := url.Parse(m.API); err == nil && u.Scheme != "" && u.Host != "" {
+			h["Referer"] = u.Scheme + "://" + u.Host + "/"
+		}
+	}
+	return h
 }
 
 func (a *App) remember(url string, bmp *ui.Bitmap) {
