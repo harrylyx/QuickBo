@@ -31,14 +31,14 @@ func TestApplyParses(t *testing.T) {
 		{Name: "嗅探", Type: 0, URL: "http://unused"},
 		{Name: "json", Type: 1, URL: srv.URL + "?url="},
 	}
-	u, hdr, ok := ApplyParses(context.Background(), "http://page/1", parses)
+	_, u, hdr, ok := ApplyParses(context.Background(), "http://page/1", parses)
 	if !ok || u != "http://cdn/a.m3u8" {
 		t.Fatalf("got %s ok %v", u, ok)
 	}
 	if hdr["Referer"] != "http://page/" {
 		t.Fatalf("header %+v", hdr)
 	}
-	if _, _, ok := ApplyParses(context.Background(), "http://cdn/a.m3u8", parses); ok {
+	if _, _, _, ok := ApplyParses(context.Background(), "http://cdn/a.m3u8", parses); ok {
 		t.Fatal("direct url should not be parsed")
 	}
 }

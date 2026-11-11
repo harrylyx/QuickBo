@@ -232,10 +232,11 @@ func (a *App) keepWorking(ctx context.Context, full *source.Catalog) {
 				a.loadNote = fmt.Sprintf("正在检查源 %d/%d，可用 %d", n, total, len(siteSnap)+len(shownLive))
 			})
 		}
+		dead := a.loadDead()
 		sem := make(chan struct{}, indexProbeParallel)
 		var wg sync.WaitGroup
 		for i, s := range sites {
-			if s.Meta().Level == config.LevelNo || skipped[sourceHideID(s)] {
+			if s.Meta().Level == config.LevelNo || skipped[sourceHideID(s)] || a.isDead(sourceHideID(s), dead) {
 				checked.Add(1)
 				continue
 			}
@@ -311,7 +312,7 @@ func (a *App) keepWorking(ctx context.Context, full *source.Catalog) {
 			}(i, s)
 		}
 		for i, lv := range lives {
-			if skipped[liveHideID(lv.URL)] {
+			if skipped[liveHideID(lv.URL)] || a.isDead(liveHideID(lv.URL), dead) {
 				checked.Add(1)
 				continue
 			}
@@ -340,6 +341,35 @@ func (a *App) keepWorking(ctx context.Context, full *source.Catalog) {
 			}(i, lv)
 		}
 		wg.Wait()
+		// Persist the dead list from this pass: sources that failed are skipped
+		// for deadBlacklistTTL on the next load instead of being retried every
+		// time, and sources that recovered are removed.
+		if ctx.Err() == nil {
+			now := time.Now()
+			for i, s := range sites {
+				id := sourceHideID(s)
+				if s.Meta().Level == config.LevelNo || skipped[id] {
+					continue
+				}
+				if okSite[i] {
+					delete(dead, id)
+				} else {
+					dead[id] = now
+				}
+			}
+			for i, lv := range lives {
+				id := liveHideID(lv.URL)
+				if skipped[id] {
+					continue
+				}
+				if okLive[i] {
+					delete(dead, id)
+				} else {
+					dead[id] = now
+				}
+			}
+			a.saveDead(dead)
+		}
 		// Only a complete pass is worth persisting; a cancelled load should be
 		// collected again next time instead of caching a partial result.
 		if ctx.Err() == nil && (len(cacheSites) > 0 || len(cacheLives) > 0) {

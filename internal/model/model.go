@@ -39,6 +39,11 @@ func (p Page) HasNext() bool {
 	if p.PageCount > 0 {
 		return p.Page < p.PageCount
 	}
+	// A source may report a total without a page count: once every item has
+	// been collected there is nothing left to fetch.
+	if p.Total > 0 && len(p.Items) >= p.Total {
+		return false
+	}
 	return true
 }
 

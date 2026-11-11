@@ -124,6 +124,53 @@ func PostForm(ctx context.Context, hc *http.Client, raw, form string, headers ma
 	return ToUTF8(body, resp.Header.Get("Content-Type")), nil
 }
 
+// Probe connects and reads up to n bytes, reporting how many arrived. It is
+// used to check a live stream without downloading it: any bytes plus a 2xx
+// status mean the endpoint is serving.
+func Probe(ctx context.Context, hc *http.Client, raw string, headers map[string]string, n int64) (int64, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if n <= 0 {
+		n = 4 << 10
+	}
+	if strings.HasPrefix(raw, "file:") {
+		b, err := readFileURL(raw, n)
+		return int64(len(b)), err
+	}
+	if hc == nil {
+		hc = New()
+	}
+	raw, err := requestURL(raw)
+	if err != nil {
+		return 0, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, raw, nil)
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("User-Agent", TVBoxUA)
+	for k, v := range headers {
+		if strings.TrimSpace(k) == "" || v == "" {
+			continue
+		}
+		req.Header.Set(k, v)
+	}
+	resp, err := hc.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return 0, fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	got, err := io.CopyN(io.Discard, resp.Body, n)
+	if err != nil && err != io.EOF {
+		return got, err
+	}
+	return got, nil
+}
+
 func readFileURL(raw string, limit int64) ([]byte, error) {
 	path := strings.TrimPrefix(raw, "file://")
 	path = strings.TrimPrefix(path, "file:")

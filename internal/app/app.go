@@ -21,6 +21,7 @@ import (
 	"github.com/harrylyx/QuickBo/internal/httpx"
 	"github.com/harrylyx/QuickBo/internal/live"
 	"github.com/harrylyx/QuickBo/internal/model"
+	"github.com/harrylyx/QuickBo/internal/playback"
 	"github.com/harrylyx/QuickBo/internal/player"
 	"github.com/harrylyx/QuickBo/internal/source"
 
@@ -101,7 +102,8 @@ type App struct {
 	playErr     string
 	playNote    string
 	playLoading bool
-	player      *ui.VideoPlayer
+	player      player.Player
+	pb          *playback.Controller
 	fromLive    bool
 
 	channels    []live.Channel
@@ -109,6 +111,11 @@ type App struct {
 	liveGroup   string
 	liveErr     string
 	liveLoading bool
+	liveHealth  map[string]liveHealthState
+	liveTries   int
+
+	parseMu   sync.Mutex
+	parseRank map[string]parseRankEntry
 
 	preferExternal bool
 	light          bool
@@ -174,6 +181,7 @@ type savedSettings struct {
 func New() *App {
 	a := &App{
 		screen:        screenWelcome,
+		pb:            playback.New(),
 		volume:        1,
 		savedVolume:   1,
 		appliedVolume: 1,
@@ -617,7 +625,7 @@ func (a *App) playEpisode(line string, ep model.Episode) {
 		defer cancel()
 		pb, err := src.Resolve(ctx, line, ep)
 		if err == nil && (pb.NeedsParse || !player.IsDirect(pb.URL)) {
-			if u, h, ok := player.ApplyParses(ctx, pb.URL, parses); ok {
+			if u, h, ok := a.applyParsesRanked(ctx, pb.URL, parses); ok {
 				pb.URL = u
 				pb.Headers = mergeHeaders(pb.Headers, h)
 			}
@@ -647,31 +655,8 @@ func (a *App) playEpisode(line string, ep model.Episode) {
 }
 
 func (a *App) playChannel(ch live.Channel) {
-	a.playLine = ch.Group
-	a.playTitle = ch.Name
-	a.fromLive = true
-	a.screen = screenLive
-	a.playLoading = true
-	a.playErr = ""
-	a.closePlayer()
-	headers := map[string]string{"User-Agent": httpx.TVBoxUA}
-	raw := ch.URL
-	name := ch.Name
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
-		defer cancel()
-		if !player.IsDirect(raw) {
-			if u, ok := player.Unwrap(ctx, raw, headers); ok && u != "" {
-				raw = u
-			}
-		}
-		a.post(func() {
-			a.playLoading = false
-			a.startPlay(name, raw, headers, true)
-			a.screen = screenLive
-			a.fromLive = true
-		})
-	}()
+	a.liveTries = 0
+	a.startChannel(ch)
 }
 
 func (a *App) startPlay(title, raw string, headers map[string]string, fromLive bool) {
@@ -692,22 +677,10 @@ func (a *App) startPlay(title, raw string, headers map[string]string, fromLive b
 	if !player.IsDirect(raw) {
 		notes = append(notes, "这个地址不像直接的媒体流，仍会尝试播放。")
 	}
-	if hasRequestHeaders(headers) {
-		notes = append(notes, "原生播放器不会附带 Referer / User-Agent，失败时用 mpv。")
-	}
-	if a.preferExternal {
-		if err := player.LaunchMPV(raw, headers); err != nil {
-			a.playErr = "无法启动 mpv：" + err.Error()
-		} else {
-			notes = append(notes, "已交给 mpv。")
-		}
-		a.playNote = strings.Join(notes, " ")
-		return
-	}
-	p, err := player.OpenNative(raw)
+	a.playNote = strings.Join(notes, " ")
+	p, err := a.pb.Play(context.Background(), raw, headers)
 	if err != nil {
 		a.playErr = err.Error()
-		a.playNote = strings.Join(notes, " ")
 		return
 	}
 	p.SetVolume(a.volume)
@@ -716,25 +689,8 @@ func (a *App) startPlay(title, raw string, headers map[string]string, fromLive b
 	}
 	p.SetRate(a.rate)
 	a.player = p
-	a.playNote = strings.Join(notes, " ")
 	a.controlsUntil = time.Now().Add(4 * time.Second)
 	a.rememberCurrent(raw)
-}
-
-func (a *App) openExternal() {
-	if a.player != nil {
-		a.player.Pause()
-	}
-	if strings.TrimSpace(a.playURL) == "" {
-		a.playErr = "没有播放地址"
-		return
-	}
-	if err := player.LaunchMPV(a.playURL, a.playHeaders); err != nil {
-		a.playErr = "无法启动 mpv：" + err.Error() + "。请确认 mpv 在 PATH 里。"
-		return
-	}
-	a.playErr = ""
-	a.playNote = "已交给 mpv。"
 }
 
 func (a *App) selectLive(i int) {

@@ -217,7 +217,7 @@ func (a *App) viewSettings(c *ui.Context, th *ui.Theme) {
 	ui.Modal(c, &a.settingsOpen, func() {
 		ui.Column(c).Width(440).Gap(16).Children(func() {
 			ui.Text(c, "设置").FontSize(fontHeadline).Bold()
-			ui.Text(c, "外观与播放器偏好只影响这台设备。订阅地址在顶部「订阅」中管理。").TextColor(th.TextMuted).Wrap()
+			ui.Text(c, "外观偏好只影响这台设备。订阅地址在顶部「订阅」中管理。").TextColor(th.TextMuted).Wrap()
 			ui.Text(c, "外观").FontSize(fontCaption).TextColor(th.TextMuted)
 			ui.Row(c).Gap(8).Children(func() {
 				a.choice(c, th, "外观深色", "深色", !a.light, func() {
@@ -228,12 +228,6 @@ func (a *App) viewSettings(c *ui.Context, th *ui.Theme) {
 					a.light = true
 					a.saveSettings()
 				})
-			})
-			ui.Column(c).FillWidth().Padding(12, 14).Radius(8).Background(th.Surface).Children(func() {
-				if ui.Checkbox(c, &a.preferExternal, "优先使用 mpv 播放").Changed() {
-					a.saveSettings()
-				}
-				ui.Text(c, "mpv 可以带上 Referer 和自定义 User-Agent；原生播放器更轻量。").FontSize(fontCaption).TextColor(th.TextMuted).Wrap()
 			})
 			ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
 				if ui.PrimaryButton(c, "完成").Clicked() {

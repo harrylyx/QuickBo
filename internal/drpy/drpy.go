@@ -7,12 +7,14 @@ package drpy
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"net/url"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/dop251/goja"
 	"github.com/harrylyx/QuickBo/internal/httpx"
@@ -49,8 +51,8 @@ func Compile(code string) (*Engine, error) {
 	vm.Set("print", func(goja.FunctionCall) goja.Value { return goja.Undefined() })
 	vm.Set("req", e.jsRequest)
 	vm.Set("request", e.jsRequest)
-	if _, err := vm.RunString(code); err != nil {
-		return nil, fmt.Errorf("执行脚本失败: %w", err)
+	if err := e.runScript(code); err != nil {
+		return nil, err
 	}
 	if v := vm.Get("rule"); v != nil && !goja.IsUndefined(v) && !goja.IsNull(v) {
 		if m, ok := v.Export().(map[string]any); ok {
@@ -78,6 +80,67 @@ func prepare(code string) string {
 		s = "var rule = " + strings.TrimSpace(strings.TrimPrefix(s, "export default"))
 	}
 	return s
+}
+
+// jsTimeout bounds one JavaScript execution (the top-level script or a single
+// rule function call) so a runaway loop cannot hang the shell.
+const jsTimeout = 5 * time.Second
+
+var errJSTimeout = errors.New("脚本执行超时")
+
+// runScript evaluates the top-level script. A script written as a bare
+// `return {...}` rule object fails goja's top-level return check, so it is
+// retried inside an IIFE that assigns the returned object to rule.
+func (e *Engine) runScript(code string) error {
+	err := runWithTimeout(e.vm, func() error {
+		_, err := e.vm.RunString(code)
+		return err
+	})
+	if err == nil {
+		return nil
+	}
+	if isIllegalReturn(err) {
+		wrapped := "var rule = (function(){\n" + code + "\n})()"
+		if err = runWithTimeout(e.vm, func() error {
+			_, err := e.vm.RunString(wrapped)
+			return err
+		}); err == nil {
+			return nil
+		}
+	}
+	return fmt.Errorf("执行脚本失败: %w", err)
+}
+
+// runWithTimeout runs fn (the only user of vm right now) while a watchdog
+// interrupts the runtime after jsTimeout. It clears the interrupt flag before
+// returning so the runtime can be reused.
+func runWithTimeout(vm *goja.Runtime, fn func() error) error {
+	done := make(chan error, 1)
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				done <- fmt.Errorf("脚本执行错误: %v", r)
+			}
+		}()
+		done <- fn()
+	}()
+	timer := time.AfterFunc(jsTimeout, func() { vm.Interrupt(errJSTimeout) })
+	err := <-done
+	timer.Stop()
+	vm.ClearInterrupt()
+	var ie *goja.InterruptedError
+	if errors.As(err, &ie) {
+		return errJSTimeout
+	}
+	return err
+}
+
+func isIllegalReturn(err error) bool {
+	var ex *goja.Exception
+	if errors.As(err, &ex) {
+		return strings.Contains(ex.Error(), "Illegal return statement")
+	}
+	return false
 }
 
 func (e *Engine) has(name string) bool {
@@ -324,11 +387,16 @@ func (e *Engine) call(name string, args ...any) (any, error) {
 	for i, a := range args {
 		vals[i] = e.vm.ToValue(a)
 	}
-	v, err := fn(goja.Undefined(), vals...)
-	if err != nil {
-		return nil, err
-	}
-	return exportValue(v), nil
+	var out any
+	err := runWithTimeout(e.vm, func() error {
+		v, err := fn(goja.Undefined(), vals...)
+		if err != nil {
+			return err
+		}
+		out = exportValue(v)
+		return nil
+	})
+	return out, err
 }
 
 func (e *Engine) jsRequest(call goja.FunctionCall) goja.Value {

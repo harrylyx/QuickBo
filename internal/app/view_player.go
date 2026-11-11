@@ -45,6 +45,12 @@ func (a *App) playerKeys(c *ui.Context) {
 	if a.player.Playing() {
 		a.noteProgress()
 	}
+	// mpv renders in its own window, so nothing in this view repaints on its
+	// own. Keep a slow frame loop alive while playing so the progress and
+	// buffer bars move.
+	if a.player.Playing() || a.player.Buffering() {
+		c.After(250 * time.Millisecond)
+	}
 }
 
 func (a *App) togglePlay() {
@@ -179,7 +185,7 @@ func (a *App) paintStage(c *ui.Context, th *ui.Theme, embed bool) {
 	show := a.showDrawer || a.showRates || a.player == nil || a.playLoading || paused || time.Now().Before(a.controlsUntil)
 	if a.player != nil && a.playErr == "" {
 		if err := a.player.Err(); err != nil {
-			a.playErr = "播放失败：" + err.Error() + "。可以改用 mpv。"
+			a.playErr = "播放失败：" + err.Error()
 		}
 	}
 	radius := float32(0)
@@ -188,7 +194,9 @@ func (a *App) paintStage(c *ui.Context, th *ui.Theme, embed bool) {
 	}
 	stage.Radius(radius).Clip().Background(ui.Hex("#000000")).Children(func() {
 		if a.player != nil {
-			ui.Video(c, a.player).Grow(1).Fit(ui.Contain)
+			ui.Column(c).Fill().Center().Children(func() {
+				ui.Text(c, "视频在 mpv 窗口中播放").FontSize(fontCaption).TextColor(th.AccentText.Alpha(0.55))
+			})
 		} else {
 			ui.Column(c).Fill().Center().Children(func() {
 				if a.playLoading {
@@ -212,8 +220,7 @@ func (a *App) paintStage(c *ui.Context, th *ui.Theme, embed bool) {
 		if a.playErr != "" {
 			ui.Column(c).Absolute().Left(24).Right(24).Bottom(108).Children(func() {
 				a.noteWithActions(c, th, a.playErr, true,
-					stateAction{label: "重试", primary: true, click: a.retryPlay},
-					stateAction{label: "用 mpv 播放", click: a.openExternal})
+					stateAction{label: "重试", primary: true, click: a.retryPlay})
 			})
 		}
 		if a.showDrawer {
@@ -297,7 +304,6 @@ func (a *App) playerChrome(c *ui.Context, th *ui.Theme) {
 			a.rateBtn(c, th)
 			a.iconBtn(c, "eps", iconList, "选集", 44, 26, white, func() { a.showDrawer = !a.showDrawer })
 			a.iconBtn(c, "full", iconFull, "全屏", 44, 26, white, a.toggleFull)
-			a.iconBtn(c, "mpv", iconExternal, "用 mpv 播放", 44, 26, white, a.openExternal)
 		})
 		if a.showRates {
 			ui.Row(c).Gap(6).Children(func() {
@@ -374,11 +380,12 @@ func (a *App) overlayTitle() (string, string) {
 }
 
 func (a *App) seekBar(c *ui.Context, th *ui.Theme) {
-	var pos, dur float64
+	var pos, dur, buffered float64
 	buffering := false
 	if a.player != nil {
 		pos = a.player.Position().Seconds()
 		dur = a.player.Duration().Seconds()
+		buffered = a.player.Buffered().Seconds()
 		buffering = a.player.Buffering()
 	}
 	ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
@@ -397,17 +404,22 @@ func (a *App) seekBar(c *ui.Context, th *ui.Theme) {
 				frac = 1
 			}
 		}
+		// buffered is the real loaded range mpv reports via
+		// demuxer-cache-duration: seconds of media ahead of the playhead.
+		bufFrac := 0.0
+		if dur > 0 && buffered > 0 {
+			bufFrac = (pos + buffered) / dur
+			if bufFrac < 0 {
+				bufFrac = 0
+			}
+			if bufFrac > 1 {
+				bufFrac = 1
+			}
+		}
 		hit.Children(func() {
 			ui.Box(c).Absolute().Left(0).Right(0).Top(12).Height(4).Radius(2).Background(th.AccentText.Alpha(0.22))
-			// mygo's player reports Buffering, not a buffered time range.
-			// While it is filling, the track ahead of the playhead is drawn
-			// lighter so the wait is visible; it is not a measured cache.
-			if buffering && w > 0 {
-				ahead := w*float32(frac) + w*0.12
-				if ahead > w {
-					ahead = w
-				}
-				ui.Box(c).Absolute().Left(0).Top(12).Height(4).Width(ahead).Radius(2).Background(th.AccentText.Alpha(0.38))
+			if bufFrac > frac && w > 0 {
+				ui.Box(c).Absolute().Left(0).Top(12).Height(4).Width(w * float32(bufFrac)).Radius(2).Background(th.AccentText.Alpha(0.38))
 			}
 			ui.Box(c).Absolute().Left(0).Top(12).Height(4).Width(w * float32(frac)).Radius(2).Background(th.Accent)
 			px, _, hover := hit.PointerPosition()

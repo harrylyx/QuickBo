@@ -113,6 +113,7 @@ func (a *App) toggleSubscription(ref string) {
 }
 
 func (a *App) removeSubscription(ref string) {
+	a.tombstone(ref)
 	kept := a.subs[:0]
 	for _, s := range a.subs {
 		if s.Ref != ref {

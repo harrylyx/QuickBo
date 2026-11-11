@@ -476,7 +476,7 @@ func (a *App) loadOffers(gen int, offers []playOffer, srcs map[string]source.Sou
 			out[i].detail = &d
 			out[i].score = clarityScore(o.Remarks + " " + episodeText(d))
 			mctx, mcancel := context.WithTimeout(context.Background(), 10*time.Second)
-			w, h := measureOffer(mctx, src, d, parses)
+			w, h := a.measureOffer(mctx, src, d, parses)
 			mcancel()
 			if score := scoreFromPixels(w, h); score > 0 {
 				out[i].score = score

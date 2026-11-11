@@ -110,7 +110,37 @@ func keywordHit(name string, words []string) bool {
 			return true
 		}
 	}
+	// A hierarchical name (电影/动作, 剧集>内地) should also match keywords
+	// against each ancestor segment, not only the raw or leaf string.
+	for _, seg := range categorySegments(name) {
+		for _, word := range words {
+			word = strings.TrimSpace(word)
+			if word != "" && strings.Contains(seg, word) {
+				return true
+			}
+		}
+	}
 	return false
+}
+
+// categorySegments splits a hierarchical category name into its ancestor
+// chain, so a rule keyword can match any level of the path.
+func categorySegments(name string) []string {
+	parts := strings.FieldsFunc(name, func(r rune) bool {
+		switch r {
+		case '/', '>', '›', '|', '｜', '—', '-', '·':
+			return true
+		}
+		return false
+	})
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" && p != name {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func junkCategory(name string) bool {

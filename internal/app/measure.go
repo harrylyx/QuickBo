@@ -15,7 +15,7 @@ import (
 // measureOffer reads the real picture size of one source. Each play line
 // contributes its first episode, and the reads run together. The largest
 // picture wins.
-func measureOffer(ctx context.Context, src source.Source, d model.Detail, parses []config.ParseItem) (int, int) {
+func (a *App) measureOffer(ctx context.Context, src source.Source, d model.Detail, parses []config.ParseItem) (int, int) {
 	lines := d.Lines
 	if len(lines) > 8 {
 		lines = lines[:8]
@@ -44,7 +44,7 @@ func measureOffer(ctx context.Context, src source.Source, d model.Detail, parses
 				return
 			}
 			if pb.NeedsParse || !player.IsDirect(pb.URL) {
-				if u, hdr, ok := player.ApplyParses(pctx, pb.URL, parses); ok {
+				if u, hdr, ok := a.applyParsesRanked(pctx, pb.URL, parses); ok {
 					pb.URL = u
 					pb.Headers = mergeHeaders(pb.Headers, hdr)
 				}

@@ -13,6 +13,12 @@ import (
 
 const cacheVersion = 2
 
+// cacheMaxAge is how long a collected cache may be served before it is
+// considered stale and a fresh collection runs. A collection that fails
+// (network down, every source dead) writes nothing, so the old cache would
+// otherwise be replayed indefinitely.
+const cacheMaxAge = 24 * time.Hour
+
 // cacheData is the on-disk result of a collection pass. It stores raw
 // category -> item facts rather than homepage rows, so a later rule edit can
 // be recomputed entirely offline, including keywords that matched no category
@@ -61,6 +67,12 @@ func (a *App) readCache(ref string) *cacheData {
 		return nil
 	}
 	if c.Version != cacheVersion || c.Ref != ref || len(c.Sites) == 0 {
+		return nil
+	}
+	if time.Since(c.SavedAt) > cacheMaxAge {
+		return nil
+	}
+	if a.cacheIsStale(ref, c.SavedAt) {
 		return nil
 	}
 	return &c

@@ -1,27 +1,44 @@
-// Package player opens streams. Native playback uses mygo's system media
-// engine (package ui/video): H.264/AAC in MP4 on macOS, Windows and Linux,
-// and HLS on macOS and Windows. Linux HLS and anything the system decoder
-// rejects are handed to mpv, which is also available as an explicit choice.
+// Package player opens streams with an external mpv process and exposes the
+// playback state the UI needs. The video renders in mpv's own window; this
+// process talks to mpv over JSON IPC to drive it and to read the real
+// position and buffered range.
 package player
 
 import (
 	"context"
 	"encoding/json"
 	"net/url"
-	"os/exec"
 	"strings"
+	"time"
 
-	"github.com/egoist/mygo/ui"
-	"github.com/egoist/mygo/ui/video"
 	"github.com/harrylyx/QuickBo/internal/config"
 	"github.com/harrylyx/QuickBo/internal/httpx"
 )
 
-// OpenNative opens a URL with the system media framework. The player
-// loads in the background; ErrUnsupported means this machine has no
-// framework (for example Linux without GStreamer).
-func OpenNative(raw string) (*ui.VideoPlayer, error) {
-	return video.OpenURL(raw)
+// Player is a live playback session. It is driven from the UI thread; the
+// getters are cheap mutex reads so the view can poll them every frame.
+type Player interface {
+	Load(ctx context.Context, raw string, headers map[string]string) error
+	Play() error
+	Pause() error
+	Seek(d time.Duration) error
+	SetRate(r float64) error
+	SetVolume(v float64) error
+	SetMuted(m bool) error
+	Muted() bool
+	Ready() bool
+	Playing() bool
+	Ended() bool
+	Buffering() bool
+	// Position is the current playback position. Duration is the total length
+	// (0 while unknown, e.g. live). Buffered is the real buffered range ahead
+	// of the playhead (0 while unknown).
+	Position() time.Duration
+	Duration() time.Duration
+	Buffered() time.Duration
+	// Err is the last terminal playback error, cleared by Load.
+	Err() error
+	Close() error
 }
 
 // IsDirect reports whether raw already looks like a media address, so it
@@ -49,54 +66,43 @@ func IsDirect(raw string) bool {
 	return false
 }
 
-// LaunchMPV starts mpv in the background. headers are passed as referrer,
-// user agent and http-header-fields. A missing mpv returns an error.
-func LaunchMPV(raw string, headers map[string]string) error {
-	bin, err := exec.LookPath("mpv")
-	if err != nil {
-		return err
-	}
-	args := []string{"--force-window=yes", "--keep-open=yes", "--no-terminal"}
-	for k, v := range headers {
-		if strings.TrimSpace(v) == "" {
-			continue
-		}
-		switch strings.ToLower(k) {
-		case "user-agent":
-			args = append(args, "--user-agent="+v)
-		case "referer", "referrer":
-			args = append(args, "--referrer="+v)
-		default:
-			args = append(args, "--http-header-fields="+k+": "+v)
-		}
-	}
-	args = append(args, raw)
-	cmd := exec.Command(bin, args...)
-	hideWindow(cmd)
-	return cmd.Start()
+// ParseAttempt is the outcome of asking one online parser for a stream. The
+// caller uses it to keep a per-parser track record (success rate and latency)
+// so well-behaved parsers are tried first.
+type ParseAttempt struct {
+	Parser  string        // the parser's URL, its stable identity
+	Latency time.Duration // round-trip for this one parser
+	OK      bool          // whether it produced a usable stream
 }
 
-// ApplyParses asks type=1 JSON parsers for a real stream URL. Other parse
-// types (page sniffers, jar) are skipped. ok is false when nothing usable
-// came back.
-func ApplyParses(ctx context.Context, raw string, parses []config.ParseItem) (string, map[string]string, bool) {
+// ApplyParses asks type=1 JSON parsers for a real stream URL, in the given
+// order, and reports how each parser performed. Other parse types (page
+// sniffers, jar) are skipped. It stops at the first usable result; ok is false
+// when nothing usable came back.
+func ApplyParses(ctx context.Context, raw string, parses []config.ParseItem) (attempts []ParseAttempt, stream string, headers map[string]string, ok bool) {
 	if IsDirect(raw) || strings.TrimSpace(raw) == "" {
-		return raw, nil, false
+		return nil, raw, nil, false
 	}
 	for _, p := range parses {
 		if p.Type != 1 || strings.TrimSpace(p.URL) == "" {
 			continue
 		}
 		u := joinParse(p.URL, raw)
+		start := time.Now()
 		body, _, err := httpx.Get(ctx, nil, u, map[string]string{"User-Agent": httpx.TVBoxUA}, 2<<20)
+		latency := time.Since(start)
 		if err != nil {
+			attempts = append(attempts, ParseAttempt{Parser: p.URL, Latency: latency, OK: false})
 			continue
 		}
-		if found, hdr, ok := extractPlay(body); ok && found != "" && found != raw {
-			return found, hdr, true
+		found, hdr, got := extractPlay(body)
+		if got && found != "" && found != raw {
+			attempts = append(attempts, ParseAttempt{Parser: p.URL, Latency: latency, OK: true})
+			return attempts, found, hdr, true
 		}
+		attempts = append(attempts, ParseAttempt{Parser: p.URL, Latency: latency, OK: false})
 	}
-	return raw, nil, false
+	return attempts, raw, nil, false
 }
 
 func joinParse(base, raw string) string {

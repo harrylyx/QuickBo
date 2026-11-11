@@ -93,17 +93,26 @@ func (l *library) upsertWatch(item watchItem) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	item.Updated = time.Now()
+	// Exact match by (site, id): preserve progress and timing facts the caller
+	// may not have measured yet.
 	for i := range l.Watch {
 		if l.Watch[i].Key == item.Key {
-			if item.Position == 0 {
-				item.Position = l.Watch[i].Position
-			}
-			if item.URL == "" {
-				item.URL = l.Watch[i].URL
-			}
+			mergeWatch(&item, l.Watch[i])
 			l.Watch[i] = item
 			l.save()
 			return
+		}
+	}
+	// Cross-source: the same title opened from another source folds into one
+	// continue-watching entry, keeping the newest source as the resume target.
+	if t := watchTitle(item.Title); t != "" {
+		for i := range l.Watch {
+			if watchTitle(l.Watch[i].Title) == t {
+				mergeWatch(&item, l.Watch[i])
+				l.Watch[i] = item
+				l.save()
+				return
+			}
 		}
 	}
 	l.Watch = append([]watchItem{item}, l.Watch...)
@@ -111,6 +120,25 @@ func (l *library) upsertWatch(item watchItem) {
 		l.Watch = l.Watch[:40]
 	}
 	l.save()
+}
+
+// mergeWatch keeps the stored value for fields the new item left empty, so a
+// re-open never clobbers progress, URL or a known duration with a zero value.
+func mergeWatch(dst *watchItem, prev watchItem) {
+	if dst.Position == 0 {
+		dst.Position = prev.Position
+	}
+	if dst.URL == "" {
+		dst.URL = prev.URL
+	}
+	if dst.Duration == 0 {
+		dst.Duration = prev.Duration
+	}
+}
+
+// watchTitle is the loose title identity used to merge a title across sources.
+func watchTitle(s string) string {
+	return strings.ToLower(strings.Join(strings.Fields(s), " "))
 }
 
 func (l *library) touchProgress(key string, pos, dur float64) {

@@ -221,7 +221,7 @@ func TestSubsAndSettingsDialogsAreSeparate(t *testing.T) {
 	if err := tt.Click("设置"); err != nil {
 		t.Fatal(err)
 	}
-	for _, text := range []string{"设置", "外观", "优先使用 mpv 播放", "完成"} {
+	for _, text := range []string{"设置", "外观", "完成"} {
 		if !tt.HasText(text) {
 			t.Fatalf("settings dialog missing %q in %q", text, tt.Texts())
 		}
