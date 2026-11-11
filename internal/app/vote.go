@@ -356,6 +356,11 @@ type playOffer struct {
 	// Checking is set while the background pass is still reading this
 	// source's detail and measuring its picture (loadOffers).
 	Checking bool
+	// Unplayable is set once the check found that no line of this source
+	// plays (Reason says why). The detail page greys it out and it cannot
+	// be picked. A check that only timed out leaves it unset.
+	Unplayable bool
+	Reason     string
 }
 
 func (a *App) sortOffers() {
@@ -364,6 +369,9 @@ func (a *App) sortOffers() {
 		picked = a.offers[a.offerPick].SiteKey
 	}
 	sort.SliceStable(a.offers, func(i, j int) bool {
+		if a.offers[i].Unplayable != a.offers[j].Unplayable {
+			return !a.offers[i].Unplayable
+		}
 		if a.offers[i].Clarity != a.offers[j].Clarity {
 			return a.offers[i].Clarity > a.offers[j].Clarity
 		}
@@ -501,6 +509,9 @@ func (a *App) loadOffers(gen int, offers []playOffer, srcs map[string]source.Sou
 		measured bool
 		w        int
 		h        int
+		// unplayable and reason come from the playability check.
+		unplayable bool
+		reason     string
 	}
 	out := make([]result, len(offers))
 	var wg sync.WaitGroup
@@ -526,11 +537,19 @@ func (a *App) loadOffers(gen int, offers []playOffer, srcs map[string]source.Sou
 							continue
 						}
 						a.offers[k].Checking = false
+						if r.detail != nil {
+							a.offers[k].Detail = r.detail
+						}
 						if r.measured {
 							a.offers[k].Width, a.offers[k].Height = r.w, r.h
 						}
 						if r.err != "" {
 							a.offers[k].Err = r.err
+						}
+						a.offers[k].Unplayable, a.offers[k].Reason = r.unplayable, r.reason
+						if r.unplayable && k == a.offerPick {
+							// Leave a source that turned out not to play.
+							a.pickPlayable()
 						}
 					}
 				})
@@ -538,24 +557,31 @@ func (a *App) loadOffers(gen int, offers []playOffer, srcs map[string]source.Sou
 			src := srcs[o.SiteKey]
 			if src == nil {
 				out[i].err = "这个源已经不在列表里"
+				out[i].unplayable, out[i].reason = true, out[i].err
 				return
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), indexProbeTimeout)
 			d, err := src.Detail(ctx, o.ItemID)
+			timedOut := ctx.Err() != nil
 			cancel()
 			if err != nil {
 				out[i].err = err.Error()
+				// A slow source is not proof that it cannot play.
+				if !timedOut {
+					out[i].unplayable, out[i].reason = true, "读取详情失败"
+				}
 				return
 			}
 			out[i].detail = &d
 			out[i].score = clarityScore(o.Remarks + " " + episodeText(d))
 			mctx, mcancel := context.WithTimeout(context.Background(), 10*time.Second)
-			w, h := a.measureOffer(mctx, src, d, parses)
+			probe := a.measureOffer(mctx, src, d, parses)
 			mcancel()
-			if score := scoreFromPixels(w, h); score > 0 {
+			out[i].unplayable, out[i].reason = probe.unplayable, probe.reason
+			if score := scoreFromPixels(probe.w, probe.h); score > 0 {
 				out[i].score = score
 				out[i].measured = true
-				out[i].w, out[i].h = w, h
+				out[i].w, out[i].h = probe.w, probe.h
 			}
 		}(i, o)
 	}
@@ -576,6 +602,7 @@ func (a *App) loadOffers(gen int, offers []playOffer, srcs map[string]source.Sou
 				a.offers[i].Detail = out[j].detail
 				a.offers[i].Err = out[j].err
 				a.offers[i].Checking = false
+				a.offers[i].Unplayable, a.offers[i].Reason = out[j].unplayable, out[j].reason
 				if out[j].measured {
 					a.offers[i].Clarity = out[j].score
 					a.offers[i].Width = out[j].w
@@ -589,13 +616,31 @@ func (a *App) loadOffers(gen int, offers []playOffer, srcs map[string]source.Sou
 		a.detailLoading = false
 		a.offerPick = 0
 		for i, o := range a.offers {
-			if o.SiteKey == picked {
+			if o.SiteKey == picked && !o.Unplayable {
 				a.offerPick = i
 				break
 			}
 		}
 		a.applyOffer()
 	})
+}
+
+// pickPlayable moves the pick to the first source not known to be
+// unplayable, and shows it.
+func (a *App) pickPlayable() {
+	for i, o := range a.offers {
+		if !o.Unplayable && o.Detail != nil {
+			a.offerPick = i
+			a.applyOffer()
+			return
+		}
+	}
+	for i, o := range a.offers {
+		if !o.Unplayable {
+			a.offerPick = i
+			return
+		}
+	}
 }
 
 func episodeText(d model.Detail) string {
@@ -617,14 +662,22 @@ func (a *App) applyOffer() {
 		return
 	}
 	idx := a.offerPick
-	if idx < 0 || idx >= len(a.offers) || a.offers[idx].Detail == nil {
-		// Prefer a source whose detail actually loaded; never blank a good
-		// detail just because a higher-estimated source failed to resolve.
+	if idx < 0 || idx >= len(a.offers) || a.offers[idx].Detail == nil || a.offers[idx].Unplayable {
+		// Prefer a playable source whose detail actually loaded; never blank
+		// a good detail just because a higher-estimated source failed.
 		idx = -1
 		for i, o := range a.offers {
-			if o.Detail != nil {
+			if o.Detail != nil && !o.Unplayable {
 				idx = i
 				break
+			}
+		}
+		if idx < 0 {
+			for i, o := range a.offers {
+				if o.Detail != nil {
+					idx = i
+					break
+				}
 			}
 		}
 		if idx < 0 {
@@ -746,7 +799,7 @@ func usableTitle(s string) bool {
 }
 
 func (a *App) pickOffer(i int) {
-	if i < 0 || i >= len(a.offers) {
+	if i < 0 || i >= len(a.offers) || a.offers[i].Unplayable {
 		return
 	}
 	a.offerPick = i

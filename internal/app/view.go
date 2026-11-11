@@ -1231,6 +1231,21 @@ func (a *App) choice(c *ui.Context, th *ui.Theme, key, label string, on bool, cl
 	})
 }
 
+// deadChoice is a choice that cannot be picked: greyed, marked 无法播放,
+// with why in its tooltip.
+func (a *App) deadChoice(c *ui.Context, th *ui.Theme, key, label, reason string) {
+	tip := "无法播放"
+	if reason != "" {
+		tip += "：" + reason
+	}
+	ui.Row(c.Key(key)).Padding(10, 12).Radius(8).Gap(6).AlignItems(ui.Center).
+		Background(th.SurfaceHover.Alpha(0.45)).Cursor(ui.CursorNotAllowed).Tooltip(tip).Label(label + "，" + tip).
+		Children(func() {
+			ui.Text(c, label).FontSize(fontBody).TextColor(th.TextMuted.Alpha(0.6)).SingleLine()
+			ui.Text(c, "无法播放").FontSize(fontCaption).TextColor(th.Danger.Alpha(0.75)).SingleLine()
+		})
+}
+
 type stateAction struct {
 	label   string
 	primary bool

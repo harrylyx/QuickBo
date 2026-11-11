@@ -477,8 +477,11 @@ func hostOf(raw string) string {
 	return u.Host
 }
 
-func offerGroup(n int) string {
-	if label := clarityLabel(n); label != "" {
+func offerGroup(o playOffer) string {
+	if o.Unplayable {
+		return "无法播放"
+	}
+	if label := clarityLabel(o.Clarity); label != "" {
 		return label
 	}
 	return "其他"
@@ -489,16 +492,7 @@ func (a *App) viewOffers(c *ui.Context, th *ui.Theme) {
 		name string
 		idx  []int
 	}
-	var groups []group
-	for i, o := range a.offers {
-		name := offerGroup(o.Clarity)
-		if len(groups) == 0 || groups[len(groups)-1].name != name {
-			groups = append(groups, group{name: name})
-		}
-		last := &groups[len(groups)-1]
-		last.idx = append(last.idx, i)
-	}
-	checking, measured := 0, 0
+	checking, measured, dead := 0, 0, 0
 	for _, o := range a.offers {
 		if o.Checking {
 			checking++
@@ -506,6 +500,24 @@ func (a *App) viewOffers(c *ui.Context, th *ui.Theme) {
 		if o.Width > 0 && o.Height > 0 {
 			measured++
 		}
+		if o.Unplayable {
+			dead++
+		}
+	}
+	var groups []group
+	for i, o := range a.offers {
+		// Offers are re-sorted (unplayable last) only when the check ends;
+		// until then an unplayable one greys out in place, under its
+		// clarity group, so the groups do not split up.
+		name := offerGroup(o)
+		if checking > 0 {
+			name = offerGroup(playOffer{Clarity: o.Clarity})
+		}
+		if len(groups) == 0 || groups[len(groups)-1].name != name {
+			groups = append(groups, group{name: name})
+		}
+		last := &groups[len(groups)-1]
+		last.idx = append(last.idx, i)
 	}
 	ui.Column(c).Gap(14).Children(func() {
 		ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
@@ -519,9 +531,12 @@ func (a *App) viewOffers(c *ui.Context, th *ui.Theme) {
 				ui.Box(c).Width(96).Height(4).Radius(2).Background(th.SurfaceHover).Children(func() {
 					ui.Box(c).Height(4).WidthPercent(float32(done) * 100 / float32(len(a.offers))).Radius(2).Background(th.Accent)
 				})
-			case measured > 0:
-				ui.Text(c, fmt.Sprintf("已按实测清晰度排序（实测 %d/%d 个）", measured, len(a.offers))).
-					FontSize(fontCaption).TextColor(th.TextMuted).SingleLine()
+			case measured > 0 || dead > 0:
+				note := fmt.Sprintf("已按实测清晰度排序（实测 %d/%d 个）", measured, len(a.offers))
+				if dead > 0 {
+					note += fmt.Sprintf("，%d 个无法播放", dead)
+				}
+				ui.Text(c, note).FontSize(fontCaption).TextColor(th.TextMuted).SingleLine()
 			}
 		})
 		for _, g := range groups {
@@ -539,10 +554,12 @@ func (a *App) viewOffers(c *ui.Context, th *ui.Theme) {
 						if st := a.stats[o.SiteKey]; st.Delay > 0 {
 							label += fmt.Sprintf(" · %d ms", st.Delay)
 						}
+						if o.Unplayable {
+							a.deadChoice(c, th, "offer:"+o.SiteKey, o.SiteName, o.Reason)
+							continue
+						}
 						if o.Checking {
 							label += " · 检测中…"
-						} else if o.Err != "" && o.Width == 0 {
-							label += " · 读取失败"
 						}
 						a.choice(c, th, "offer:"+o.SiteKey, label, i == a.offerPick, func() { a.pickOffer(i) })
 					}
