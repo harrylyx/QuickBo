@@ -25,6 +25,8 @@ type Player interface {
 	SetRate(r float64) error
 	SetVolume(v float64) error
 	SetMuted(m bool) error
+	SetFullscreen(f bool) error
+	Fullscreen() bool
 	Muted() bool
 	Ready() bool
 	Playing() bool

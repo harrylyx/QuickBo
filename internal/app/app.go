@@ -126,12 +126,15 @@ type App struct {
 	playIndex      int
 	resumeAt       float64
 	showDrawer     bool
-	showRates      bool
 	controlsUntil  time.Time
 	ptrX, ptrY     float32
 	ptrSeen        bool
 	savedVolume    float64
 	appliedVolume  float64
+	fullscreen     bool
+	spaceDownAt    time.Time
+	spaceBoosted   bool
+	bufferingSince time.Time
 	lib            *library
 
 	browseScroll ui.ScrollState
@@ -612,7 +615,6 @@ func (a *App) playEpisode(line string, ep model.Episode) {
 	a.playLine = line
 	a.playIndex = episodeIndex(a.detail, line, ep)
 	a.showDrawer = false
-	a.showRates = false
 	a.closePlayer()
 	key := a.siteKey
 	parses := []config.ParseItem(nil)
@@ -886,6 +888,10 @@ func (a *App) closePlayer() {
 		a.player.Close()
 		a.player = nil
 	}
+	a.fullscreen = false
+	a.spaceDownAt = time.Time{}
+	a.spaceBoosted = false
+	a.bufferingSince = time.Time{}
 }
 
 func (a *App) saveSettings() {

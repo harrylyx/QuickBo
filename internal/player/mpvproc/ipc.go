@@ -63,17 +63,19 @@ const (
 	evPlaying   // paused-for-cache became false
 	evDuration
 	evBuffered
+	evFullscreen
 	evEOF
 	evError
 )
 
 // mpvEvent is a decoded async event that readLoop folds into procState.
 type mpvEvent struct {
-	kind     mpvEventKind
-	position float64
-	duration float64
-	buffered float64
-	err      error
+	kind       mpvEventKind
+	position   float64
+	duration   float64
+	buffered   float64 // absolute end of the buffered range (seekable-ranges max end)
+	fullscreen bool
+	err        error
 }
 
 // parseEvent decodes the events the player cares about. Everything else
@@ -122,12 +124,18 @@ func parseEvent(line []byte) (mpvEvent, bool) {
 				return mpvEvent{}, false
 			}
 			return mpvEvent{kind: evDuration, duration: f}, true
-		case "demuxer-cache-duration":
-			f, ok := parseNullableFloat(raw.Data)
+		case "demuxer-cache-state":
+			end, ok := parseCacheEnd(raw.Data)
 			if !ok {
 				return mpvEvent{}, false
 			}
-			return mpvEvent{kind: evBuffered, buffered: f}, true
+			return mpvEvent{kind: evBuffered, buffered: end}, true
+		case "fullscreen":
+			var on *bool
+			if err := json.Unmarshal(raw.Data, &on); err != nil || on == nil {
+				return mpvEvent{}, false
+			}
+			return mpvEvent{kind: evFullscreen, fullscreen: *on}, true
 		}
 	}
 	return mpvEvent{}, false
@@ -145,6 +153,31 @@ func parseNullableFloat(data json.RawMessage) (float64, bool) {
 		return 0, false
 	}
 	return f, true
+}
+
+// parseCacheEnd reads the end of the buffered range mpv reports in
+// demuxer-cache-state's seekable-ranges: the furthest point the demuxer can
+// play without hitting the network again. No ranges (as for a local file)
+// yields ok=false so the player keeps the unknown default.
+func parseCacheEnd(data json.RawMessage) (float64, bool) {
+	var st struct {
+		Ranges []struct {
+			End float64 `json:"end"`
+		} `json:"seekable-ranges"`
+	}
+	if err := json.Unmarshal(data, &st); err != nil {
+		return 0, false
+	}
+	end := -1.0
+	for _, r := range st.Ranges {
+		if r.End > end {
+			end = r.End
+		}
+	}
+	if end < 0 {
+		return 0, false
+	}
+	return end, true
 }
 
 // parsePauseProperty reads the pause property. pause never maps to a buffering

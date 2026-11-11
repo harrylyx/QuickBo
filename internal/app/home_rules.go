@@ -302,7 +302,13 @@ func (a *App) saveRules() {
 	a.noteRuleSeq()
 	a.rulesDirty = false
 	a.saveSettings()
-	a.rebuildHome()
+	if len(a.ballots) == 0 {
+		// No cached facts to re-tally: collect fresh data so the new layout
+		// actually shows up on the homepage.
+		a.recollect()
+	} else {
+		a.rebuildHome()
+	}
 	a.homeHits = nil
 	a.searchLookup = nil
 	a.homeSearching = false

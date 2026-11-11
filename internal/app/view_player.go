@@ -9,6 +9,17 @@ import (
 	"github.com/harrylyx/QuickBo/internal/model"
 )
 
+// rateList is the playback speed cycle, toggled by the rate button.
+var rateList = []float64{0.5, 0.75, 1, 1.25, 1.5, 2, 3}
+
+// spaceBoostDelay is how long space must be held before it turns into a
+// temporary 2× boost instead of a pause/play toggle on release.
+const spaceBoostDelay = 400 * time.Millisecond
+
+// bufferingShowDelay suppresses the buffering spinner for short transients so
+// a seek's quick rebuffer does not flash the overlay.
+const bufferingShowDelay = 350 * time.Millisecond
+
 func (a *App) playerKeys(c *ui.Context) {
 	if a.screen != screenPlay && a.screen != screenLive {
 		return
@@ -16,8 +27,13 @@ func (a *App) playerKeys(c *ui.Context) {
 	if a.player == nil {
 		return
 	}
+	// Keep the local fullscreen flag in sync with mpv's own window state, so a
+	// toggle always flips the right way even after mpv's OSC or Escape exits it.
+	a.fullscreen = a.player.Fullscreen()
 	switch {
 	case c.Shortcut(0, ui.KeySpace):
+		// Live/embedded fallback: no focused element consumes space, so it
+		// toggles play here. In the VOD view the stage's HandleInput takes it.
 		a.togglePlay()
 	case c.Shortcut(0, ui.KeyLeft):
 		a.seekBy(-10)
@@ -30,8 +46,8 @@ func (a *App) playerKeys(c *ui.Context) {
 	case c.Shortcut(0, ui.KeyF):
 		a.toggleFull()
 	case c.Shortcut(0, ui.KeyEscape):
-		if a.win != nil && a.win.IsFullScreen() {
-			a.win.SetFullScreen(false)
+		if a.fullscreen {
+			a.setFullscreen(false)
 			return
 		}
 		if a.screen == screenPlay {
@@ -42,13 +58,20 @@ func (a *App) playerKeys(c *ui.Context) {
 		a.player.Seek(time.Duration(a.resumeAt * float64(time.Second)))
 		a.resumeAt = 0
 	}
+	// Holding space past spaceBoostDelay turns it into a temporary 2× boost;
+	// release restores the chosen rate (see playerInput).
+	if !a.spaceDownAt.IsZero() && !a.spaceBoosted && time.Since(a.spaceDownAt) > spaceBoostDelay {
+		a.spaceBoosted = true
+		a.player.SetRate(2)
+		a.player.Play()
+	}
 	if a.player.Playing() {
 		a.noteProgress()
 	}
 	// mpv renders in its own window, so nothing in this view repaints on its
 	// own. Keep a slow frame loop alive while playing so the progress and
-	// buffer bars move.
-	if a.player.Playing() || a.player.Buffering() {
+	// buffer bars move, and while space is held so the boost can kick in.
+	if a.player.Playing() || a.player.Buffering() || !a.spaceDownAt.IsZero() {
 		c.After(250 * time.Millisecond)
 	}
 }
@@ -108,10 +131,15 @@ func (a *App) toggleMute() {
 }
 
 func (a *App) toggleFull() {
-	if a.win != nil {
-		a.win.ToggleFullScreen()
-	}
+	a.setFullscreen(!a.fullscreen)
 	a.armControls()
+}
+
+func (a *App) setFullscreen(on bool) {
+	a.fullscreen = on
+	if a.player != nil {
+		a.player.SetFullscreen(on)
+	}
 }
 
 func (a *App) armControls() {
@@ -123,8 +151,46 @@ func (a *App) setRate(r float64) {
 	if a.player != nil {
 		a.player.SetRate(r)
 	}
-	a.showRates = false
 	a.armControls()
+}
+
+// cycleRate steps through rateList, wrapping around, so the rate button is a
+// single tap to change speed rather than opening an options row.
+func (a *App) cycleRate() {
+	i := 0
+	for ; i < len(rateList); i++ {
+		if rateList[i] == a.rate {
+			break
+		}
+	}
+	a.setRate(rateList[(i+1)%len(rateList)])
+}
+
+// playerInput takes the space key while the stage has focus, so a short press
+// pauses on release and a hold becomes a temporary 2× boost (see playerKeys).
+func (a *App) playerInput(ev ui.InputEvent) bool {
+	if a.player == nil || ev.Key != ui.KeySpace {
+		return false
+	}
+	switch ev.Kind {
+	case ui.InputKeyDown:
+		if ev.Repeat {
+			return true
+		}
+		a.spaceDownAt = time.Now()
+		a.spaceBoosted = false
+		return true
+	case ui.InputKeyUp:
+		a.spaceDownAt = time.Time{}
+		if a.spaceBoosted {
+			a.spaceBoosted = false
+			a.player.SetRate(a.rate)
+		} else {
+			a.togglePlay()
+		}
+		return true
+	}
+	return false
 }
 
 func (a *App) playRelative(delta int) {
@@ -164,6 +230,13 @@ func (a *App) paintStage(c *ui.Context, th *ui.Theme, embed bool) {
 	} else {
 		stage = stage.Fill()
 	}
+	// In the full-screen VOD view the stage takes the keyboard focus so space's
+	// press/release reach playerInput (mpv renders in its own window and the
+	// window-level shortcuts only see key-down). The live view is embedded next
+	// to a search field, so it must not steal focus there.
+	if a.player != nil && !embed {
+		stage = stage.Focusable().FocusRing(false).Focus().HandleInput(a.playerInput)
+	}
 	x, y, over := stage.PointerPosition()
 	if over {
 		dx, dy := x-a.ptrX, y-a.ptrY
@@ -182,11 +255,22 @@ func (a *App) paintStage(c *ui.Context, th *ui.Theme, embed bool) {
 		c.After(remain + 40*time.Millisecond)
 	}
 	paused := a.player != nil && a.player.Ready() && !a.player.Playing() && !a.player.Ended()
-	show := a.showDrawer || a.showRates || a.player == nil || a.playLoading || paused || time.Now().Before(a.controlsUntil)
+	show := a.showDrawer || a.player == nil || a.playLoading || paused || time.Now().Before(a.controlsUntil)
 	if a.player != nil && a.playErr == "" {
 		if err := a.player.Err(); err != nil {
 			a.playErr = "播放失败：" + err.Error()
 		}
+	}
+	// Debounce the buffering overlay so a seek's brief rebuffer does not flash.
+	buffering := a.player != nil && (!a.player.Ready() || a.player.Buffering())
+	showBuffering := false
+	if buffering {
+		if a.bufferingSince.IsZero() {
+			a.bufferingSince = time.Now()
+		}
+		showBuffering = time.Since(a.bufferingSince) > bufferingShowDelay
+	} else {
+		a.bufferingSince = time.Time{}
 	}
 	radius := float32(0)
 	if embed {
@@ -204,7 +288,7 @@ func (a *App) paintStage(c *ui.Context, th *ui.Theme, embed bool) {
 				}
 			})
 		}
-		if a.player != nil && (!a.player.Ready() || a.player.Buffering()) {
+		if showBuffering {
 			ui.Column(c).Absolute().Left(0).Right(0).Top(0).Bottom(0).Center().Children(func() {
 				ui.Column(c).Padding(16).Radius(16).Background(ui.RGBA(0, 0, 0, 0.45)).Children(func() {
 					ui.Spinner(c)
@@ -305,28 +389,6 @@ func (a *App) playerChrome(c *ui.Context, th *ui.Theme) {
 			a.iconBtn(c, "eps", iconList, "选集", 44, 26, white, func() { a.showDrawer = !a.showDrawer })
 			a.iconBtn(c, "full", iconFull, "全屏", 44, 26, white, a.toggleFull)
 		})
-		if a.showRates {
-			ui.Row(c).Gap(6).Children(func() {
-				for _, r := range []float64{0.5, 0.75, 1, 1.25, 1.5, 2} {
-					r := r
-					label := trimRate(r)
-					a.choice(c, th, "rate-"+label, label, a.rate == r, func() { a.setRate(r) })
-				}
-			})
-		}
-		if a.detail != nil && len(a.detail.Lines) > 1 {
-			ui.Row(c).Gap(6).Children(func() {
-				for i, ln := range a.detail.Lines {
-					i, name := i, ln.Name
-					a.choice(c, th, "route-"+name, lineLabel(name, i), name == a.playLine, func() {
-						a.linePick = i
-						if len(ln.Episodes) > 0 {
-							a.playEpisode(name, ln.Episodes[0])
-						}
-					})
-				}
-			})
-		}
 	})
 }
 
@@ -342,7 +404,7 @@ func chromeFade(y float32) ui.ElementTransition {
 
 func (a *App) rateBtn(c *ui.Context, th *ui.Theme) {
 	label := trimRate(a.rate)
-	b := ui.Column(c.Key("speed")).Padding(6, 8).Radius(8).OnClick(func() { a.showRates = !a.showRates }).Cursor(ui.CursorPointer)
+	b := ui.Column(c.Key("speed")).Padding(6, 8).Radius(8).OnClick(a.cycleRate).Cursor(ui.CursorPointer)
 	if b.Hovered() {
 		b.Background(th.AccentText.Alpha(0.14))
 	}
@@ -404,8 +466,8 @@ func (a *App) seekBar(c *ui.Context, th *ui.Theme) {
 				frac = 1
 			}
 		}
-		// buffered is the real loaded range mpv reports via
-		// demuxer-cache-duration: seconds of media ahead of the playhead.
+		// buffered is the real loaded range mpv reports: seconds of media ahead
+		// of the playhead, derived from demuxer-cache-state's seekable-ranges.
 		bufFrac := 0.0
 		if dur > 0 && buffered > 0 {
 			bufFrac = (pos + buffered) / dur

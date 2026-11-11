@@ -50,10 +50,14 @@ type procState struct {
 	paused   bool // user-initiated pause, shields cache events while paused
 	position float64
 	duration float64
-	buffered float64
-	ended    bool
+	// bufferedEnd is the absolute end of the buffered range mpv reports via
+	// demuxer-cache-state seekable-ranges (-1 while unknown). Buffered derives
+	// the ahead-of-playhead amount from it.
+	bufferedEnd float64
+	ended       bool
 	err      error
 	muted    bool
+	fullscr  bool
 	volume   int // 0-100
 	rate     float64
 	posAt    time.Time // wall clock of the last position sample (extrapolation)
@@ -87,7 +91,7 @@ func New(exePath string) (player.Player, error) {
 	return &mpvProc{
 		exePath:   exePath,
 		responses: make(chan response, 16),
-		state:     procState{playing: psStopped, duration: -1, buffered: -1, rate: 1, volume: 100},
+		state:     procState{playing: psStopped, duration: -1, bufferedEnd: -1, rate: 1, volume: 100},
 	}, nil
 }
 
@@ -138,7 +142,7 @@ func (p *mpvProc) Load(ctx context.Context, raw string, headers map[string]strin
 	p.lifecycleMu.Unlock()
 
 	p.stateMu.Lock()
-	p.state = procState{playing: psPlaying, duration: -1, buffered: -1, rate: 1, volume: 100}
+	p.state = procState{playing: psPlaying, duration: -1, bufferedEnd: -1, rate: 1, volume: 100}
 	p.stateMu.Unlock()
 
 	go p.readLoop(conn, sess)
@@ -149,7 +153,8 @@ func (p *mpvProc) Load(ctx context.Context, raw string, headers map[string]strin
 	_ = p.send("observe_property", 1, "paused-for-cache")
 	_ = p.send("observe_property", 2, "pause")
 	_ = p.send("observe_property", 3, "duration")
-	_ = p.send("observe_property", 4, "demuxer-cache-duration")
+	_ = p.send("observe_property", 4, "demuxer-cache-state")
+	_ = p.send("observe_property", 5, "fullscreen")
 	return nil
 }
 
@@ -225,6 +230,16 @@ func (p *mpvProc) SetMuted(m bool) error {
 	return nil
 }
 
+func (p *mpvProc) SetFullscreen(f bool) error {
+	return p.send("set_property", "fullscreen", f)
+}
+
+func (p *mpvProc) Fullscreen() bool {
+	p.stateMu.Lock()
+	defer p.stateMu.Unlock()
+	return p.state.fullscr
+}
+
 func (p *mpvProc) Muted() bool {
 	p.stateMu.Lock()
 	defer p.stateMu.Unlock()
@@ -282,12 +297,17 @@ func (p *mpvProc) Duration() time.Duration {
 
 func (p *mpvProc) Buffered() time.Duration {
 	p.stateMu.Lock()
-	b := p.state.buffered
+	end := p.state.bufferedEnd
+	pos := p.state.position
 	p.stateMu.Unlock()
-	if b <= 0 {
+	if end <= 0 || pos < 0 {
 		return 0
 	}
-	return time.Duration(b * float64(time.Second))
+	ahead := end - pos
+	if ahead <= 0 {
+		return 0
+	}
+	return time.Duration(ahead * float64(time.Second))
 }
 
 func (p *mpvProc) Err() error {
@@ -463,7 +483,9 @@ func (p *mpvProc) applyEvent(evt mpvEvent) {
 	case evDuration:
 		p.state.duration = evt.duration
 	case evBuffered:
-		p.state.buffered = evt.buffered
+		p.state.bufferedEnd = evt.buffered
+	case evFullscreen:
+		p.state.fullscr = evt.fullscreen
 	case evEOF:
 		p.state.ended = true
 		p.state.playing = psStopped
