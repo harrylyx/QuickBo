@@ -161,13 +161,13 @@ func (a *App) restoreFromCache(c *cacheData, full *source.Catalog) {
 	a.catalog = &source.Catalog{Parses: full.Parses, Index: full.Index}
 	for _, s := range full.Sites {
 		m := s.Meta()
-		if !c.hasSite(m.Key) || a.hidden[sourceHideID(s)] {
+		if !c.hasSite(m.Key) || a.hidden[sourceHideID(s)] || a.blacklisted(m.Name) {
 			continue
 		}
 		a.catalog.Sites = append(a.catalog.Sites, s)
 	}
 	for _, lv := range full.Lives {
-		if !c.hasLive(lv.URL) || a.hidden[liveHideID(lv.URL)] {
+		if !c.hasLive(lv.URL) || a.hidden[liveHideID(lv.URL)] || a.blacklisted(lv.Name) {
 			continue
 		}
 		a.catalog.Lives = append(a.catalog.Lives, lv)
@@ -180,8 +180,10 @@ func (a *App) restoreFromCache(c *cacheData, full *source.Catalog) {
 	a.rebuildHome()
 	a.loading = false
 	a.loadNote = ""
-	a.screen = screenHome
-	a.sideSel = "home"
-	a.lastSide = "home"
+	if !a.keepScreen {
+		a.screen = screenHome
+		a.sideSel = "home"
+		a.lastSide = "home"
+	}
 	a.doneLoad()
 }

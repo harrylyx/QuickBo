@@ -135,7 +135,20 @@ type App struct {
 	spaceDownAt    time.Time
 	spaceBoosted   bool
 	bufferingSince time.Time
+	keepScreen     bool
 	lib            *library
+
+	// Subscription and source management.
+	subSort        string           // 订阅排序键：name/ref/enabled/count
+	subFilter      string           // 订阅列表搜索关键字
+	subSel         map[string]bool  // 批量选中的订阅 ref
+	subBatch       bool             // 订阅批量管理模式
+	srcFilter      string           // 片源管理搜索关键字
+	srcSel         map[string]bool  // 批量选中的片源 key
+	srcBatch       bool             // 片源批量管理模式
+	blacklist      []string         // 片源黑名单关键字
+	blacklistDraft string           // 黑名单关键字输入框
+	sidebarOpen    map[string]*bool // 侧边栏分组的展开状态（按分组名）
 
 	browseScroll ui.ScrollState
 	appending    bool
@@ -176,6 +189,7 @@ type savedSettings struct {
 	Light          bool           `json:"light,omitempty"`
 	Volume         *float64       `json:"volume,omitempty"`
 	Hidden         []string       `json:"hidden,omitempty"`
+	Blacklist      []string       `json:"blacklist,omitempty"`
 	HomeRules      []homeRule     `json:"homeRules,omitempty"`
 }
 
@@ -283,6 +297,12 @@ func (a *App) RestoreSettings() []string {
 			a.hidden[id] = true
 		}
 	}
+	a.blacklist = nil
+	for _, kw := range s.Blacklist {
+		if kw = strings.TrimSpace(kw); kw != "" {
+			a.blacklist = append(a.blacklist, kw)
+		}
+	}
 	if len(s.HomeRules) > 0 {
 		a.homeRules = normalizeRules(s.HomeRules)
 		a.resetRuleEdits()
@@ -336,6 +356,7 @@ func (a *App) apply(cfg *config.Config, ref string) {
 		if len(a.catalog.Index) > 0 {
 			a.screen = screenIndex
 			a.sideSel = ""
+			a.keepScreen = false
 			a.expandIndex(a.catalog.Index)
 			return
 		}
@@ -903,6 +924,7 @@ func (a *App) saveSettings() {
 		Config: a.primaryRef(), Subs: cloneSubs(a.subs),
 		PreferExternal: a.preferExternal, Light: a.light, Volume: &vol,
 		Hidden:    hiddenIDs(a.hidden),
+		Blacklist: cloneBlacklist(a.blacklist),
 		HomeRules: cloneRules(a.homeRules),
 	}
 	b, err := json.MarshalIndent(s, "", "  ")

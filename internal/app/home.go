@@ -95,6 +95,66 @@ func (a *App) dropSite(key string) {
 	a.saveSettings()
 }
 
+// removeSites drops several sources at once and rebuilds the home lanes in
+// place, without leaving the current screen (the sources view stays open).
+func (a *App) removeSites(keys []string) {
+	if a.catalog == nil || len(keys) == 0 {
+		return
+	}
+	drop := map[string]bool{}
+	for _, k := range keys {
+		if k = strings.TrimSpace(k); k != "" {
+			drop[k] = true
+		}
+	}
+	if len(drop) == 0 {
+		return
+	}
+	kept := make([]source.Source, 0, len(a.catalog.Sites))
+	removed := false
+	for _, s := range a.catalog.Sites {
+		if drop[s.Meta().Key] {
+			if a.hidden == nil {
+				a.hidden = map[string]bool{}
+			}
+			a.hidden[sourceHideID(s)] = true
+			removed = true
+			continue
+		}
+		kept = append(kept, s)
+	}
+	if !removed {
+		return
+	}
+	a.catalog.Sites = kept
+	before := len(a.ballots)
+	keptBallots := a.ballots[:0]
+	for _, b := range a.ballots {
+		if !drop[b.SiteKey] {
+			keptBallots = append(keptBallots, b)
+		}
+	}
+	a.ballots = keptBallots
+	if len(a.ballots) != before {
+		a.rebuildHome()
+	} else {
+		for k := range drop {
+			a.home = withoutLane(a.home, k)
+		}
+	}
+	for k := range drop {
+		a.homeHits = withoutLane(a.homeHits, k)
+	}
+	if a.siteKey != "" && drop[a.siteKey] {
+		a.siteKey = ""
+		a.page = model.Page{}
+		a.detail = nil
+		a.cats = nil
+	}
+	a.srcSel = nil
+	a.saveSettings()
+}
+
 func (a *App) dropLive(url string) {
 	if a.catalog == nil {
 		return

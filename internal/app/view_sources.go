@@ -6,42 +6,144 @@ import (
 	"strings"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/harrylyx/QuickBo/internal/source"
 )
 
 func (a *App) viewSources(c *ui.Context, th *ui.Theme) {
-	ui.Scroll(c).Grow(1).Children(func() {
-		ui.Column(c).Gap(16).Children(func() {
-			ui.Row(c).AlignItems(ui.Center).Gap(12).Children(func() {
-				ui.Text(c, "测连通、延迟和服务器所在地。延迟低、清晰度高的源，在影片页里排在前面。").TextColor(th.TextMuted).Shrink(1).Wrap()
-				ui.Column(c).Grow(1)
-				if ui.Button(c, "全部测速").Clicked() {
-					a.probeAllSources()
-				}
-			})
-			if a.catalog == nil || len(a.catalog.Sites) == 0 {
-				a.emptyState(c, th, "还没有片源", "添加一份配置后，能列出内容的源会出现在这里。",
-					stateAction{label: "添加订阅", primary: true, click: a.openSubs})
-				return
+	ui.Column(c).Grow(1).Gap(16).Children(func() {
+		ui.Row(c).AlignItems(ui.Center).Gap(12).Children(func() {
+			ui.Text(c, "测连通、延迟和服务器所在地。延迟低、清晰度高的源，在影片页里排在前面。").TextColor(th.TextMuted).Shrink(1).Wrap()
+			ui.Column(c).Grow(1)
+			ui.SearchField(c, &a.srcFilter).Placeholder("搜索片源").Width(180).Label("搜索片源")
+			if ui.Button(c, "全部测速").Clicked() {
+				a.probeAllSources()
 			}
-			for _, s := range a.catalog.Sites {
-				m := s.Meta()
-				key := m.Key
-				ui.Row(c.Key("src:"+key)).FillWidth().Padding(12, 14).Radius(8).Background(th.Surface).AlignItems(ui.Center).Gap(12).Children(func() {
-					ui.Column(c).Grow(1).Gap(4).Children(func() {
-						ui.Text(c, m.Name).FontSize(fontTitle).Bold().SingleLine()
-						ui.Text(c, hostOf(m.API)).FontSize(fontCaption).TextColor(th.TextMuted).SingleLine()
-						ui.Text(c, a.statLine(key)).FontSize(fontCaption).TextColor(statColor(th, a.stats[key])).SingleLine()
-					})
-					if ui.Button(c.Key("probe:"+key), "测速").Clicked() {
-						a.probeSource(key)
-					}
-					if ui.Button(c.Key("drop-panel:"+key), "移除").Clicked() {
-						a.dropSite(key)
-					}
-				})
+			batchLabel := "批量删除"
+			if a.srcBatch {
+				batchLabel = "完成"
+			}
+			if ui.Button(c, batchLabel).Clicked() {
+				a.srcBatch = !a.srcBatch
+				if !a.srcBatch {
+					a.srcSel = nil
+				}
 			}
 		})
+
+		if a.catalog == nil || len(a.catalog.Sites) == 0 {
+			a.emptyState(c, th, "还没有片源", "添加一份配置后，能列出内容的源会出现在这里。",
+				stateAction{label: "添加订阅", primary: true, click: a.openSubs})
+			return
+		}
+
+		sites := a.filteredSites()
+		if len(sites) == 0 {
+			ui.Text(c, "没有匹配「"+strings.TrimSpace(a.srcFilter)+"」的片源").TextColor(th.TextMuted)
+			return
+		}
+
+		if a.srcBatch {
+			all := ui.CheckOff
+			selCount := 0
+			for _, s := range sites {
+				if a.srcSel[s.Meta().Key] {
+					selCount++
+				}
+			}
+			switch {
+			case selCount == len(sites) && len(sites) > 0:
+				all = ui.CheckOn
+			case selCount > 0:
+				all = ui.CheckMixed
+			}
+			stop := false
+			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+				if ui.CheckboxState(c, &all, "全选").Changed() {
+					if a.srcSel == nil {
+						a.srcSel = map[string]bool{}
+					}
+					if all == ui.CheckOn {
+						for _, s := range sites {
+							a.srcSel[s.Meta().Key] = true
+						}
+					} else {
+						a.srcSel = nil
+					}
+				}
+				ui.Column(c).Grow(1)
+				ui.Text(c, fmt.Sprintf("已选 %d 个", selCount)).FontSize(fontCaption).TextColor(th.TextMuted)
+				if ui.Button(c, "删除所选").Disabled(selCount == 0).Clicked() && selCount > 0 {
+					var keys []string
+					for k, on := range a.srcSel {
+						if on {
+							keys = append(keys, k)
+						}
+					}
+					a.removeSites(keys)
+					stop = true
+				}
+			})
+			if stop {
+				return
+			}
+		}
+
+		ui.Scroll(c).Grow(1).Children(func() {
+			ui.Column(c).Gap(16).Children(func() {
+				for _, s := range sites {
+					m := s.Meta()
+					key := m.Key
+					ui.Row(c.Key("src:"+key)).FillWidth().Padding(12, 14).Radius(8).Background(th.Surface).AlignItems(ui.Center).Gap(12).Children(func() {
+						if a.srcBatch {
+							checked := a.srcSel[key]
+							if ui.Checkbox(c, &checked, "").Changed() {
+								if a.srcSel == nil {
+									a.srcSel = map[string]bool{}
+								}
+								if checked {
+									a.srcSel[key] = true
+								} else {
+									delete(a.srcSel, key)
+								}
+							}
+						}
+						ui.Column(c).Grow(1).Gap(4).Children(func() {
+							ui.Text(c, m.Name).FontSize(fontTitle).Bold().SingleLine()
+							ui.Text(c, hostOf(m.API)).FontSize(fontCaption).TextColor(th.TextMuted).SingleLine()
+							ui.Text(c, a.statLine(key)).FontSize(fontCaption).TextColor(statColor(th, a.stats[key])).SingleLine()
+						})
+						if ui.Button(c.Key("probe:"+key), "测速").Clicked() {
+							a.probeSource(key)
+						}
+						if !a.srcBatch {
+							if ui.Button(c.Key("drop-panel:"+key), "移除").Clicked() {
+								a.removeSites([]string{key})
+							}
+						}
+					})
+				}
+			})
+		})
 	})
+}
+
+// filteredSites returns the loaded sources whose name, key or API host
+// matches the search box.
+func (a *App) filteredSites() []source.Source {
+	q := strings.ToLower(strings.TrimSpace(a.srcFilter))
+	if q == "" {
+		return a.catalog.Sites
+	}
+	var out []source.Source
+	for _, s := range a.catalog.Sites {
+		m := s.Meta()
+		if strings.Contains(strings.ToLower(m.Name), q) ||
+			strings.Contains(strings.ToLower(m.Key), q) ||
+			strings.Contains(strings.ToLower(m.API), q) {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 func statColor(th *ui.Theme, st sourceStat) ui.Color {

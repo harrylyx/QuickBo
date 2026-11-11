@@ -183,7 +183,7 @@ func TestSubsDialogListsSubscriptions(t *testing.T) {
 	if err := tt.Click("订阅"); err != nil {
 		t.Fatal(err)
 	}
-	for _, text := range []string{"订阅列表", "添加订阅", "甲订阅", "乙订阅", "启用"} {
+	for _, text := range []string{"搜索订阅", "添加订阅", "甲订阅", "乙订阅", "启用"} {
 		if !tt.HasText(text) {
 			t.Fatalf("missing %q in %q", text, tt.Texts())
 		}
@@ -226,7 +226,7 @@ func TestSubsAndSettingsDialogsAreSeparate(t *testing.T) {
 			t.Fatalf("settings dialog missing %q in %q", text, tt.Texts())
 		}
 	}
-	if tt.HasText("订阅列表") || tt.HasText("添加订阅") {
+	if tt.HasText("搜索订阅") || tt.HasText("添加订阅") {
 		t.Fatalf("settings dialog contains subscription controls: %q", tt.Texts())
 	}
 	if err := tt.Click("完成"); err != nil {
@@ -235,7 +235,7 @@ func TestSubsAndSettingsDialogsAreSeparate(t *testing.T) {
 	if err := tt.Click("订阅"); err != nil {
 		t.Fatal(err)
 	}
-	for _, text := range []string{"订阅列表", "添加订阅", "配置 URL"} {
+	for _, text := range []string{"搜索订阅", "添加订阅", "配置 URL"} {
 		if !tt.HasText(text) {
 			t.Fatalf("subscription dialog missing %q in %q", text, tt.Texts())
 		}

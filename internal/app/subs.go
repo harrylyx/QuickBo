@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -124,6 +125,178 @@ func (a *App) removeSubscription(ref string) {
 	a.reloadSubs()
 }
 
+// subLabel is the sidebar grouping label of a subscription: its display name,
+// or a short form of the address when unnamed.
+func subLabel(s subscription) string {
+	if s.Name != "" {
+		return s.Name
+	}
+	return shortRef(s.Ref)
+}
+
+// subSourceCounts counts how many sources and live playlists each
+// subscription contributed to the current catalog, keyed by its label.
+func (a *App) subSourceCounts() map[string]int {
+	out := map[string]int{}
+	if a.catalog == nil {
+		return out
+	}
+	for _, s := range a.catalog.Sites {
+		m := s.Meta()
+		if n := a.groupName(m.API, m.Key, ""); n != "" {
+			out[n]++
+		}
+	}
+	for _, lv := range a.catalog.Lives {
+		if n := a.groupName("", "", lv.URL); n != "" {
+			out[n]++
+		}
+	}
+	return out
+}
+
+// sortedSubs returns the subscription list in the order chosen by subSort:
+// name (default), ref, enabled or source count.
+func (a *App) sortedSubs() []subscription {
+	subs := cloneSubs(a.subs)
+	counts := a.subSourceCounts()
+	sort.SliceStable(subs, func(i, j int) bool {
+		ni, nj := subLabel(subs[i]), subLabel(subs[j])
+		switch a.subSort {
+		case "地址":
+			return subs[i].Ref < subs[j].Ref
+		case "启用状态":
+			if subs[i].Enabled != subs[j].Enabled {
+				return subs[i].Enabled
+			}
+		case "片源数量":
+			if ci, cj := counts[ni], counts[nj]; ci != cj {
+				return ci > cj
+			}
+		}
+		return ni < nj
+	})
+	return subs
+}
+
+// subSortOptions are the labels of the subscription sort dropdown; the chosen
+// label is stored in subSort.
+var subSortOptions = []string{"名称", "地址", "启用状态", "片源数量"}
+
+// filteredSubs returns the sorted subscriptions whose name or address matches
+// the search box.
+func (a *App) filteredSubs() []subscription {
+	subs := a.sortedSubs()
+	q := strings.ToLower(strings.TrimSpace(a.subFilter))
+	if q == "" {
+		return subs
+	}
+	out := subs[:0]
+	for _, s := range subs {
+		if strings.Contains(strings.ToLower(s.Name), q) || strings.Contains(strings.ToLower(s.Ref), q) {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// deleteSubscriptions removes several subscriptions at once and reloads.
+func (a *App) deleteSubscriptions(refs []string) {
+	if len(refs) == 0 {
+		return
+	}
+	drop := map[string]bool{}
+	for _, r := range refs {
+		drop[strings.TrimSpace(r)] = true
+	}
+	for r := range drop {
+		a.tombstone(r)
+	}
+	kept := a.subs[:0]
+	for _, s := range a.subs {
+		if !drop[s.Ref] {
+			kept = append(kept, s)
+		}
+	}
+	a.subs = kept
+	a.subSel = nil
+	a.reloadSubs()
+}
+
+// setSubscriptionsEnabled enables or disables several subscriptions at once.
+func (a *App) setSubscriptionsEnabled(refs []string, enabled bool) {
+	if len(refs) == 0 {
+		return
+	}
+	want := map[string]bool{}
+	for _, r := range refs {
+		want[strings.TrimSpace(r)] = true
+	}
+	for i := range a.subs {
+		if want[a.subs[i].Ref] {
+			a.subs[i].Enabled = enabled
+		}
+	}
+	a.subSel = nil
+	a.reloadSubs()
+}
+
+func cloneBlacklist(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(in))
+	for _, kw := range in {
+		if kw = strings.TrimSpace(kw); kw != "" {
+			out = append(out, kw)
+		}
+	}
+	return out
+}
+
+// addBlacklist records a keyword and re-filters the loaded sources. The
+// reload reuses the on-disk cache, so it does not re-probe every source.
+func (a *App) addBlacklist(kw string) {
+	kw = strings.TrimSpace(kw)
+	if kw == "" {
+		return
+	}
+	for _, k := range a.blacklist {
+		if strings.EqualFold(k, kw) {
+			return
+		}
+	}
+	a.blacklist = append(a.blacklist, kw)
+	a.blacklistDraft = ""
+	a.reloadSubs()
+}
+
+func (a *App) removeBlacklist(kw string) {
+	kept := a.blacklist[:0]
+	for _, k := range a.blacklist {
+		if k != kw {
+			kept = append(kept, k)
+		}
+	}
+	a.blacklist = kept
+	a.reloadSubs()
+}
+
+// blacklisted reports whether a source or live playlist name matches a
+// blacklist keyword. Matching is case-insensitive substring.
+func (a *App) blacklisted(name string) bool {
+	if len(a.blacklist) == 0 {
+		return false
+	}
+	n := strings.ToLower(name)
+	for _, kw := range a.blacklist {
+		if kw = strings.ToLower(strings.TrimSpace(kw)); kw != "" && strings.Contains(n, kw) {
+			return true
+		}
+	}
+	return false
+}
+
 // reloadSubs applies a change to the subscription list. With nothing enabled
 // the app returns to the welcome screen instead of serving stale sources.
 func (a *App) reloadSubs() {
@@ -145,6 +318,10 @@ func (a *App) reloadSubs() {
 		a.screen = screenWelcome
 		return
 	}
+	// Editing a subscription list must refresh the sources without yanking the
+	// user back to the home screen; keepScreen makes apply/keepWorking skip the
+	// screen navigation for this reload.
+	a.keepScreen = true
 	a.LoadSubs(refs)
 }
 
@@ -325,4 +502,19 @@ func (a *App) sideGroups() []sideGroup {
 		}
 	}
 	return kept
+}
+
+// sidebarOpenState returns a stable pointer to a subscription group's
+// expanded flag, so SidebarSection can collapse and reopen it in place.
+// Groups start expanded.
+func (a *App) sidebarOpenState(name string) *bool {
+	if a.sidebarOpen == nil {
+		a.sidebarOpen = map[string]*bool{}
+	}
+	if p, ok := a.sidebarOpen[name]; ok {
+		return p
+	}
+	open := true
+	a.sidebarOpen[name] = &open
+	return a.sidebarOpen[name]
 }

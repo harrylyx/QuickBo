@@ -38,6 +38,7 @@ func (a *App) beginLoad() (context.Context, int) {
 }
 
 func (a *App) doneLoad() {
+	a.keepScreen = false
 	if a.afterLoad != nil {
 		fn := a.afterLoad
 		a.afterLoad = nil
@@ -168,11 +169,13 @@ func (a *App) keepWorking(ctx context.Context, full *source.Catalog) {
 	total := len(sites) + len(lives)
 	a.loading = true
 	a.loadNote = fmt.Sprintf("正在检查 %d 个源", total)
-	a.screen = screenHome
-	a.sideSel = "home"
-	a.lastSide = "home"
-	a.siteKey = ""
-	a.home = nil
+	if !a.keepScreen {
+		a.screen = screenHome
+		a.sideSel = "home"
+		a.lastSide = "home"
+		a.siteKey = ""
+		a.home = nil
+	}
 	skipped := map[string]bool{}
 	for id := range a.hidden {
 		skipped[id] = true
@@ -211,14 +214,14 @@ func (a *App) keepWorking(ctx context.Context, full *source.Catalog) {
 				}
 				siteSnap := make([]source.Source, 0, len(got))
 				for _, g := range got {
-					if a.hidden[sourceHideID(g.src)] {
+					if a.hidden[sourceHideID(g.src)] || a.blacklisted(g.src.Meta().Name) {
 						continue
 					}
 					siteSnap = append(siteSnap, g.src)
 				}
 				shownLive := liveSnap[:0]
 				for _, lv := range liveSnap {
-					if !a.hidden[liveHideID(lv.URL)] {
+					if !a.hidden[liveHideID(lv.URL)] && !a.blacklisted(lv.Name) {
 						shownLive = append(shownLive, lv)
 					}
 				}
@@ -236,7 +239,7 @@ func (a *App) keepWorking(ctx context.Context, full *source.Catalog) {
 		sem := make(chan struct{}, indexProbeParallel)
 		var wg sync.WaitGroup
 		for i, s := range sites {
-			if s.Meta().Level == config.LevelNo || skipped[sourceHideID(s)] || a.isDead(sourceHideID(s), dead) {
+			if s.Meta().Level == config.LevelNo || skipped[sourceHideID(s)] || a.blacklisted(s.Meta().Name) || a.isDead(sourceHideID(s), dead) {
 				checked.Add(1)
 				continue
 			}

@@ -431,7 +431,42 @@ func (a *App) openTitle(key string) {
 		parses = a.cfg.Parses
 	}
 	gen := a.bump()
+	// Paint the best source's detail at once; the full scan (detail + speed
+	// measurement of every offering source) keeps running in the background and
+	// may later swap in a better source.
+	if src := srcs[a.offers[0].SiteKey]; src != nil {
+		a.fetchOfferDetail(src, a.offers[0].ItemID, hits[0].Title, hits[0].Pic, gen)
+	}
 	go a.loadOffers(gen, offers, srcs, parses)
+}
+
+// fetchOfferDetail resolves a single source's detail immediately so the
+// detail page paints without waiting for the cross-source measurement pass.
+// The full offer scan is the final authority and may override this later.
+func (a *App) fetchOfferDetail(src source.Source, itemID, title, pic string, gen int) {
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+		defer cancel()
+		d, err := src.Detail(ctx, itemID)
+		if err != nil {
+			// Leave detailLoading set; loadOffers will surface the outcome.
+			return
+		}
+		a.post(func() {
+			if a.gen != gen || a.detail != nil {
+				return
+			}
+			if d.Title == "" {
+				d.Title = title
+			}
+			if d.Pic == "" {
+				d.Pic = pic
+			}
+			a.detail = &d
+			a.linePick = model.PreferredLine(d.Lines)
+			a.detailLoading = false
+		})
+	}()
 }
 
 func (a *App) hitsFor(key string) []titleHit {
@@ -537,11 +572,27 @@ func episodeText(d model.Detail) string {
 }
 
 func (a *App) applyOffer() {
-	if a.offerPick < 0 || a.offerPick >= len(a.offers) {
+	if len(a.offers) == 0 {
 		a.detail = nil
 		return
 	}
-	o := a.offers[a.offerPick]
+	idx := a.offerPick
+	if idx < 0 || idx >= len(a.offers) || a.offers[idx].Detail == nil {
+		// Prefer a source whose detail actually loaded; never blank a good
+		// detail just because a higher-estimated source failed to resolve.
+		idx = -1
+		for i, o := range a.offers {
+			if o.Detail != nil {
+				idx = i
+				break
+			}
+		}
+		if idx < 0 {
+			idx = 0
+		}
+	}
+	o := a.offers[idx]
+	a.offerPick = idx
 	a.siteKey = o.SiteKey
 	a.detail = o.Detail
 	a.detailErr = o.Err
