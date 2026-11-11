@@ -1,27 +1,57 @@
 // Package playback resolves media addresses and drives the mpv player. It is
-// the seam between the UI (internal/app) and the player kernel
-// (internal/player and internal/player/mpvproc).
+// the seam between the UI (internal/app) and the player kernels
+// (internal/player/mpvlib, and internal/player/mpvproc as the fallback).
 package playback
 
 import (
 	"context"
+	"os"
 
 	"github.com/harrylyx/QuickBo/internal/player"
+	"github.com/harrylyx/QuickBo/internal/player/mpvlib"
 	"github.com/harrylyx/QuickBo/internal/player/mpvplugin"
 	"github.com/harrylyx/QuickBo/internal/player/mpvproc"
 )
 
-// Controller owns mpv discovery and player construction.
+// Controller owns kernel selection and player construction.
 type Controller struct {
 	mpvPath string
+	// libErr is why libmpv could not be used; playback then falls back to
+	// an mpv process in its own window.
+	libErr error
 }
 
-// New returns a controller. mpv is located and preflighted on first Play.
-func New() *Controller { return &Controller{} }
+// New returns a controller. libmpv (or mpv) is located on first Play.
+// QUICKBO_PLAYER=window forces the mpv-process kernel.
+func New() *Controller {
+	c := &Controller{}
+	if os.Getenv("QUICKBO_PLAYER") == "window" {
+		c.libErr = errForcedWindow
+	}
+	return c
+}
 
-// Play locates mpv, preflights it and starts playback of raw. The returned
-// player is driven by the UI; the video renders in mpv's own window.
+type forcedWindow struct{}
+
+func (forcedWindow) Error() string { return "QUICKBO_PLAYER=window" }
+
+var errForcedWindow error = forcedWindow{}
+
+// Play starts playback of raw. It prefers libmpv, which renders inside the
+// app window (the player implements player.VideoSource); without libmpv it
+// starts an mpv process, whose video shows in a window of its own.
 func (c *Controller) Play(ctx context.Context, raw string, headers map[string]string) (player.Player, error) {
+	if c.libErr == nil {
+		p, err := mpvlib.New()
+		if err == nil {
+			if err := p.Load(ctx, raw, headers); err != nil {
+				_ = p.Close()
+				return nil, err
+			}
+			return p, nil
+		}
+		c.libErr = err
+	}
 	exe, err := c.mpv()
 	if err != nil {
 		return nil, err
@@ -35,6 +65,15 @@ func (c *Controller) Play(ctx context.Context, raw string, headers map[string]st
 		return nil, err
 	}
 	return p, nil
+}
+
+// FallbackNote explains, once playback has fallen back to an mpv window, why
+// the video is not inside the app. It is empty while libmpv is in use.
+func (c *Controller) FallbackNote() string {
+	if c.libErr == nil || c.libErr == errForcedWindow {
+		return ""
+	}
+	return "未能加载 libmpv，改用独立 mpv 窗口播放：" + c.libErr.Error()
 }
 
 func (c *Controller) mpv() (string, error) {

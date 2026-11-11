@@ -498,8 +498,32 @@ func (a *App) viewOffers(c *ui.Context, th *ui.Theme) {
 		last := &groups[len(groups)-1]
 		last.idx = append(last.idx, i)
 	}
+	checking, measured := 0, 0
+	for _, o := range a.offers {
+		if o.Checking {
+			checking++
+		}
+		if o.Width > 0 && o.Height > 0 {
+			measured++
+		}
+	}
 	ui.Column(c).Gap(14).Children(func() {
-		ui.Text(c, "片源").FontSize(fontTitle).Bold()
+		ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
+			ui.Text(c, "片源").FontSize(fontTitle).Bold()
+			switch {
+			case checking > 0:
+				done := len(a.offers) - checking
+				ui.Spinner(c)
+				ui.Text(c, fmt.Sprintf("正在检测各片源的实际清晰度 %d/%d，完成后自动排序并选出最佳片源", done, len(a.offers))).
+					FontSize(fontCaption).TextColor(th.TextMuted).Shrink(1).SingleLine()
+				ui.Box(c).Width(96).Height(4).Radius(2).Background(th.SurfaceHover).Children(func() {
+					ui.Box(c).Height(4).WidthPercent(float32(done) * 100 / float32(len(a.offers))).Radius(2).Background(th.Accent)
+				})
+			case measured > 0:
+				ui.Text(c, fmt.Sprintf("已按实测清晰度排序（实测 %d/%d 个）", measured, len(a.offers))).
+					FontSize(fontCaption).TextColor(th.TextMuted).SingleLine()
+			}
+		})
 		for _, g := range groups {
 			g := g
 			ui.Column(c).Gap(8).Children(func() {
@@ -514,6 +538,11 @@ func (a *App) viewOffers(c *ui.Context, th *ui.Theme) {
 						}
 						if st := a.stats[o.SiteKey]; st.Delay > 0 {
 							label += fmt.Sprintf(" · %d ms", st.Delay)
+						}
+						if o.Checking {
+							label += " · 检测中…"
+						} else if o.Err != "" && o.Width == 0 {
+							label += " · 读取失败"
 						}
 						a.choice(c, th, "offer:"+o.SiteKey, label, i == a.offerPick, func() { a.pickOffer(i) })
 					}

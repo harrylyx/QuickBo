@@ -32,15 +32,16 @@ func TestRulesRenameReorderAndCustomKeyword(t *testing.T) {
 		{SiteKey: "a", Cat: "热映", Item: model.Item{Title: "不该出现"}},
 	}
 	lanes, lookup := tallyRules(ballots, rules)
-	if len(lanes) < 3 || lanes[0].Name != hotLaneName || lanes[1].Name != "大片" {
+	// 电影 was moved above 最新影视, which is an ordinary rule row now.
+	if len(lanes) < 3 || lanes[0].Name != "大片" || lanes[1].Name != "最新影视" {
 		t.Fatalf("lanes %v", laneNames(lanes))
 	}
-	if lanes[1].Items[0].Title != "无间道" {
-		t.Fatalf("movie row %+v", lanes[1].Items)
+	if lanes[0].Items[0].Title != "无间道" {
+		t.Fatalf("movie row %+v", lanes[0].Items)
 	}
 	foundHot, foundDoc := false, false
 	for _, lane := range lanes {
-		if lane.Name == hotLaneName && len(lane.Items) == 1 && lane.Items[0].Title == "庆余年" {
+		if lane.Name == "最新影视" && len(lane.Items) == 1 && lane.Items[0].Title == "庆余年" {
 			foundHot = true
 		}
 		if lane.Name == "纪录片" && len(lane.Items) == 1 && lane.Items[0].Title == "地球脉动" {
@@ -71,7 +72,7 @@ func TestMoveRuleChangesHomeOrder(t *testing.T) {
 		{SiteKey: "a", Bucket: "movie", Item: model.Item{Title: "无间道"}},
 	}
 	a.rebuildHome()
-	if a.home[0].Name != hotLaneName {
+	if a.home[0].Name != "最新影视" {
 		t.Fatalf("before %v", laneNames(a.home))
 	}
 	movie := -1
@@ -90,7 +91,9 @@ func TestMoveRuleChangesHomeOrder(t *testing.T) {
 	if a.homeRules[0].ID != "movie" || a.homeRules[0].Name != "大片" {
 		t.Fatalf("rules %+v", a.homeRules[0])
 	}
-	if len(a.home) < 2 || a.home[0].Name != hotLaneName || a.home[1].Name != "大片" {
+	// 最新影视 is an ordinary rule now, so moving 电影 to the top puts it
+	// above 最新影视 instead of under a pinned row.
+	if len(a.home) < 2 || a.home[0].Name != "大片" || a.home[1].Name != "最新影视" {
 		t.Fatalf("home %v", laneNames(a.home))
 	}
 }
@@ -216,7 +219,7 @@ func TestRestoreSettingsDropsLegacyHotRule(t *testing.T) {
 		}
 	}
 	write([]homeRule{
-		{ID: hotLaneID, Name: hotLaneName, Keywords: []string{"最热", "热门"}},
+		{ID: hotLaneID, Name: "最热影视", Keywords: []string{"最热", "热门"}},
 		{ID: "custom-7", Name: "纪录片", Keywords: []string{"纪录"}},
 	})
 	a := New()
@@ -226,7 +229,7 @@ func TestRestoreSettingsDropsLegacyHotRule(t *testing.T) {
 		t.Fatalf("legacy hot rule was not dropped: %+v", a.homeRules)
 	}
 
-	write([]homeRule{{ID: hotLaneID, Name: hotLaneName, Keywords: []string{"最热"}}})
+	write([]homeRule{{ID: hotLaneID, Name: "最热影视", Keywords: []string{"最热"}}})
 	b := New()
 	b.settingsPath = path
 	b.RestoreSettings()

@@ -16,9 +16,14 @@ import (
 )
 
 const (
+	// hotLaneID is the bucket of front-page candidates: what each source
+	// lists first. They have no row of their own; they feed latestRuleID's.
 	hotLaneID    = "hot"
-	hotLaneName  = "最热影视"
 	hotLaneLimit = 18
+	// latestRuleID is the 最新影视 row. It merges the front-page candidates
+	// with the categories its keywords match, and ranks them with
+	// rankedLane: how many sources list a title, then sharpness, then year.
+	latestRuleID = "new"
 )
 
 // ballot is one title a source listed inside a home bucket.
@@ -81,17 +86,19 @@ func tallyRules(ballots []ballot, rules []homeRule) ([]homeLane, map[string][]ti
 		rules = defaultHomeRules()
 	}
 	ballots = expandBallots(ballots, rules)
-	lanes := make([]homeLane, 0, len(rules)+1)
+	lanes := make([]homeLane, 0, len(rules))
 	lookup := map[string][]titleHit{}
-	if lane, part := hotLane(ballots); len(lane.Items) > 0 {
-		lanes = append(lanes, lane)
-		mergeLookup(lookup, part)
-	}
 	for _, rule := range rules {
 		if rule.ID == "" || rule.ID == hotLaneID || strings.TrimSpace(rule.Name) == "" {
 			continue
 		}
-		lane, part := votedLane(rule.ID, rule.Name, filterBucket(ballots, rule.ID))
+		var lane homeLane
+		var part map[string][]titleHit
+		if rule.ID == latestRuleID {
+			lane, part = rankedLane(rule.ID, rule.Name, filterBucket(ballots, hotLaneID, rule.ID))
+		} else {
+			lane, part = votedLane(rule.ID, rule.Name, filterBucket(ballots, rule.ID))
+		}
 		if len(lane.Items) == 0 {
 			continue
 		}
@@ -119,11 +126,15 @@ func expandBallots(ballots []ballot, rules []homeRule) []ballot {
 	return out
 }
 
-func filterBucket(ballots []ballot, bucket string) []ballot {
+// filterBucket keeps the ballots cast in any of buckets.
+func filterBucket(ballots []ballot, buckets ...string) []ballot {
 	out := make([]ballot, 0, len(ballots))
 	for _, b := range ballots {
-		if b.Bucket == bucket {
-			out = append(out, b)
+		for _, bucket := range buckets {
+			if b.Bucket == bucket {
+				out = append(out, b)
+				break
+			}
 		}
 	}
 	return out
@@ -231,11 +242,12 @@ func votedLane(key, name string, ballots []ballot) (homeLane, map[string][]title
 	return laneFromCandidates(key, name, keys, by, 18)
 }
 
-// hotLane aggregates cached front-page candidates instead of depending on a
-// source category being named 热门. Mirrors share one voter, then sharpness,
-// recency and title provide deterministic tie-breakers.
-func hotLane(ballots []ballot) (homeLane, map[string][]titleHit) {
-	keys, by := groupBallots(filterBucket(ballots, hotLaneID))
+// rankedLane aggregates front-page candidates (and whatever else ballots
+// holds) instead of depending on a source category being named 热门: titles
+// listed by more sources come first (mirrors share one voter), then
+// sharpness, recency and title provide deterministic tie-breakers.
+func rankedLane(key, name string, ballots []ballot) (homeLane, map[string][]titleHit) {
+	keys, by := groupBallots(ballots)
 	sort.SliceStable(keys, func(i, j int) bool {
 		ai, aj := by[keys[i]], by[keys[j]]
 		if len(ai.voters) != len(aj.voters) {
@@ -252,7 +264,7 @@ func hotLane(ballots []ballot) (homeLane, map[string][]titleHit) {
 		}
 		return keys[i] < keys[j]
 	})
-	return laneFromCandidates(hotLaneID, hotLaneName, keys, by, hotLaneLimit)
+	return laneFromCandidates(key, name, keys, by, hotLaneLimit)
 }
 
 func mergeLookup(dst, src map[string][]titleHit) {
@@ -341,6 +353,9 @@ type playOffer struct {
 	Clarity  int
 	Width    int
 	Height   int
+	// Checking is set while the background pass is still reading this
+	// source's detail and measuring its picture (loadOffers).
+	Checking bool
 }
 
 func (a *App) sortOffers() {
@@ -414,7 +429,7 @@ func (a *App) openTitle(key string) {
 	for i, h := range hits {
 		a.offers[i] = playOffer{
 			SiteKey: h.SiteKey, SiteName: h.SiteName, ItemID: h.ItemID,
-			Remarks: h.Remarks, Clarity: clarityScore(h.Remarks),
+			Remarks: h.Remarks, Clarity: clarityScore(h.Remarks), Checking: true,
 		}
 		if a.catalog != nil {
 			if s := a.catalog.Find(h.SiteKey); s != nil {
@@ -496,6 +511,30 @@ func (a *App) loadOffers(gen int, offers []playOffer, srcs map[string]source.Sou
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
+			// Report each source as it finishes, so the page shows the check
+			// moving instead of sitting silent until every source is done.
+			// The order and clarity groups change only at the end, so chips
+			// do not jump around under the pointer meanwhile.
+			defer func() {
+				r := out[i]
+				a.post(func() {
+					if a.gen != gen {
+						return
+					}
+					for k := range a.offers {
+						if a.offers[k].SiteKey != o.SiteKey {
+							continue
+						}
+						a.offers[k].Checking = false
+						if r.measured {
+							a.offers[k].Width, a.offers[k].Height = r.w, r.h
+						}
+						if r.err != "" {
+							a.offers[k].Err = r.err
+						}
+					}
+				})
+			}()
 			src := srcs[o.SiteKey]
 			if src == nil {
 				out[i].err = "这个源已经不在列表里"
@@ -536,6 +575,7 @@ func (a *App) loadOffers(gen int, offers []playOffer, srcs map[string]source.Sou
 				}
 				a.offers[i].Detail = out[j].detail
 				a.offers[i].Err = out[j].err
+				a.offers[i].Checking = false
 				if out[j].measured {
 					a.offers[i].Clarity = out[j].score
 					a.offers[i].Width = out[j].w

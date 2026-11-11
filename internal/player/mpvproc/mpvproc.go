@@ -55,12 +55,12 @@ type procState struct {
 	// the ahead-of-playhead amount from it.
 	bufferedEnd float64
 	ended       bool
-	err      error
-	muted    bool
-	fullscr  bool
-	volume   int // 0-100
-	rate     float64
-	posAt    time.Time // wall clock of the last position sample (extrapolation)
+	err         error
+	muted       bool
+	fullscr     bool
+	volume      int // 0-100
+	rate        float64
+	posAt       time.Time // wall clock of the last position sample (extrapolation)
 }
 
 type mpvProc struct {

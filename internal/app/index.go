@@ -50,7 +50,7 @@ func (a *App) fetch(ctx context.Context, ref string) (*config.Config, error) {
 	if a.fetchConfig != nil {
 		return a.fetchConfig(ctx, ref)
 	}
-	return config.Load(ctx, ref)
+	return a.fetchCached(ctx, ref, isNestedRef(ctx, ref))
 }
 
 func (a *App) sample(ctx context.Context, s source.Source) (model.Page, bool) {
@@ -229,7 +229,11 @@ func (a *App) keepWorking(ctx context.Context, full *source.Catalog) {
 						shownLive = append(shownLive, lv)
 					}
 				}
-				if a.sideSel == "" || a.sideSel == "home" {
+				// Show home as sources come in, but only from screens that
+				// are waiting for them: opening a title (or anything else)
+				// during the load keeps sideSel at "home", and must not be
+				// undone by the next probe result.
+				if a.homeAwaitsSources() {
 					a.screen = screenHome
 					a.sideSel = "home"
 					a.lastSide = "home"
@@ -588,10 +592,33 @@ func (a *App) recollect() {
 		return
 	}
 	a.clearCache()
+	// 重新采集 means fresh from the network: configs and warehouse entries
+	// too, including the ones skipped for failing lately.
+	a.clearConfigCache()
+	if refs := a.activeRefs(); len(refs) > 0 {
+		a.keepScreen = true
+		a.LoadSubs(refs)
+		return
+	}
 	a.ballots = nil
 	a.home = nil
 	full := source.Open(a.cfg)
 	a.allSites = append([]source.Source(nil), full.Sites...)
 	a.catalog = &source.Catalog{Parses: full.Parses, Index: full.Index}
 	a.keepWorking(a.loadCtxOrBackground(), full)
+}
+
+// homeAwaitsSources reports whether the screen is still waiting for the first
+// sources of a load, so that a probe result may switch it to home. Opening a
+// title, a source or a player during the load leaves sideSel at "home"; those
+// screens must stay put.
+func (a *App) homeAwaitsSources() bool {
+	if a.sideSel != "" && a.sideSel != "home" {
+		return false
+	}
+	switch a.screen {
+	case screenHome, screenEmpty, screenIndex, screenWelcome:
+		return true
+	}
+	return false
 }

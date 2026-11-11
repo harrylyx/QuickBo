@@ -66,7 +66,9 @@ func (a *App) homeRail(c *ui.Context, th *ui.Theme, lane homeLane) {
 		ui.Row(c).AlignItems(ui.Center).Gap(12).Children(func() {
 			ui.Text(c, lane.Name).FontSize(fontTitle).Bold().SingleLine()
 			ui.Column(c).Grow(1)
-			if lane.Key != hotLaneID {
+			// Rows are keyed by homepage rule; only a row named after a
+			// source has a list to open.
+			if a.catalog != nil && a.catalog.Find(lane.Key) != nil {
 				link := ui.Row(c.Key("all:" + lane.Key)).Gap(4).AlignItems(ui.Center).
 					OnClick(func() { a.selectSite(lane.Key) }).Cursor(ui.CursorPointer).
 					Tooltip("查看全部分类").Label("全部")

@@ -132,6 +132,14 @@ type App struct {
 	savedVolume    float64
 	appliedVolume  float64
 	fullscreen     bool
+	// cfgCache is the config cache (configcache.go), read from disk on
+	// first use; fetch goroutines share it under cfgCacheMu.
+	cfgCacheMu sync.Mutex
+	cfgCache   map[string]configEntry
+	// videoBM shows the frames of an embedded player (player.VideoSource);
+	// videoShown is set once it holds a frame of the current session.
+	videoBM        *ui.Bitmap
+	videoShown     bool
 	spaceDownAt    time.Time
 	spaceBoosted   bool
 	bufferingSince time.Time
@@ -268,7 +276,7 @@ func (a *App) Load(ref string) {
 	a.loadNote = ""
 	ctx, gen := a.beginLoad()
 	go func() {
-		cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		cctx, cancel := context.WithTimeout(withUserRefs(ctx, []string{ref}), 30*time.Second)
 		defer cancel()
 		cfg, err := a.fetch(cctx, ref)
 		a.post(func() {
@@ -726,12 +734,16 @@ func (a *App) startPlay(title, raw string, headers map[string]string, fromLive b
 	if !player.IsDirect(raw) {
 		notes = append(notes, "这个地址不像直接的媒体流，仍会尝试播放。")
 	}
-	a.playNote = strings.Join(notes, " ")
 	p, err := a.pb.Play(context.Background(), raw, headers)
 	if err != nil {
 		a.playErr = err.Error()
+		a.playNote = strings.Join(notes, " ")
 		return
 	}
+	if note := a.pb.FallbackNote(); note != "" {
+		notes = append(notes, note)
+	}
+	a.playNote = strings.Join(notes, " ")
 	p.SetVolume(a.volume)
 	if a.rate <= 0 {
 		a.rate = 1
@@ -979,11 +991,18 @@ func (a *App) post(fn func()) {
 }
 
 func (a *App) closePlayer() {
+	embedded := a.embedded()
 	if a.player != nil {
 		a.player.Close()
 		a.player = nil
 	}
-	a.fullscreen = false
+	// An mpv window takes its fullscreen with it. The app window's stays,
+	// so switching episodes in fullscreen keeps it; leaving the player
+	// screens ends it (playerKeys).
+	if !embedded {
+		a.fullscreen = false
+	}
+	a.videoShown = false
 	a.spaceDownAt = time.Time{}
 	a.spaceBoosted = false
 	a.bufferingSince = time.Time{}

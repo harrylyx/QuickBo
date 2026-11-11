@@ -16,7 +16,7 @@ func TestVoteRanksOverlapFirst(t *testing.T) {
 		{SiteKey: "b", SiteName: "乙", Bucket: "region:香港", Item: model.Item{ID: "4", Title: "无间道"}},
 	}
 	lanes, lookup := tally(ballots)
-	if len(lanes) != 2 || lanes[0].Name != "最热影视" || lanes[1].Name != "香港" {
+	if len(lanes) != 2 || lanes[0].Name != "最新影视" || lanes[1].Name != "香港" {
 		t.Fatalf("lanes %+v", laneNames(lanes))
 	}
 	if lanes[0].Items[0].Title != "庆余年 2" {
@@ -91,7 +91,7 @@ func TestMirrorsShareOneVote(t *testing.T) {
 	}
 }
 
-func TestHotLaneRanksByVotersClarityAndYear(t *testing.T) {
+func TestLatestLaneRanksByVotersClarityAndYear(t *testing.T) {
 	ballots := []ballot{
 		{SiteKey: "a", Voter: "host:a", Bucket: hotLaneID, Item: model.Item{Title: "多源片", Remarks: "TS 枪版", Year: "2010"}},
 		{SiteKey: "b", Voter: "host:b", Bucket: hotLaneID, Item: model.Item{Title: "多源片", Remarks: "TS 枪版", Year: "2010"}},
@@ -105,8 +105,12 @@ func TestHotLaneRanksByVotersClarityAndYear(t *testing.T) {
 		{SiteKey: "f", Voter: "host:fourth", Bucket: hotLaneID, Item: model.Item{Title: "旧片", Remarks: "HD", Year: "2020"}},
 		{SiteKey: "g", Voter: "host:solo", Bucket: hotLaneID, Item: model.Item{Title: "单片", Remarks: "4K", Year: "2025"}},
 	}
-	lane, lookup := hotLane(ballots)
-	if lane.Key != hotLaneID || lane.Name != hotLaneName {
+	lanes, lookup := tally(ballots)
+	if len(lanes) != 1 {
+		t.Fatalf("front-page candidates must feed 最新影视 only, got %v", laneNames(lanes))
+	}
+	lane := lanes[0]
+	if lane.Key != latestRuleID || lane.Name != "最新影视" {
 		t.Fatalf("lane %+v", lane)
 	}
 	want := []string{"多源片", "更近片", "新片", "旧片", "单片"}
@@ -159,4 +163,23 @@ func laneNames(lanes []homeLane) []string {
 		out[i] = lane.Name
 	}
 	return out
+}
+
+// TestLatestLaneMergesKeywordMatches checks that 最新影视 counts a title a
+// source files under a 最新 category together with the front-page
+// candidates, so a title on both outranks one listed once.
+func TestLatestLaneMergesKeywordMatches(t *testing.T) {
+	ballots := []ballot{
+		{SiteKey: "a", Voter: "host:a", Bucket: hotLaneID, Item: model.Item{Title: "首页独有", Remarks: "4K", Year: "2025"}},
+		{SiteKey: "b", Voter: "host:b", Bucket: hotLaneID, Item: model.Item{Title: "两处都有"}},
+		{SiteKey: "c", Voter: "host:c", Cat: "最新更新", Item: model.Item{Title: "两处都有"}},
+	}
+	lanes, _ := tally(ballots)
+	if len(lanes) != 1 || lanes[0].Key != latestRuleID {
+		t.Fatalf("lanes %v", laneNames(lanes))
+	}
+	got := lanes[0].Items
+	if len(got) != 2 || got[0].Title != "两处都有" || got[1].Title != "首页独有" {
+		t.Fatalf("items %+v", got)
+	}
 }

@@ -169,7 +169,7 @@ func TestLoadIndexHidesEmptyAndFailed(t *testing.T) {
 	if a.screen != screenHome || a.sideSel != "home" || a.siteKey != "" {
 		t.Fatalf("screen %s side %s site %s", a.screen, a.sideSel, a.siteKey)
 	}
-	if len(a.home) != 1 || a.home[0].Name != hotLaneName || a.home[0].Items[0].Title != "有结果" {
+	if len(a.home) != 1 || a.home[0].Name != "最新影视" || a.home[0].Items[0].Title != "有结果" {
 		t.Fatalf("home %+v", a.home)
 	}
 }
@@ -207,7 +207,7 @@ func TestKeepWorkingCachesHotCandidates(t *testing.T) {
 	if len(c.Sites[0].Cats) != 1 || c.Sites[0].Cats[0].Name != "电影片" {
 		t.Fatalf("category facts were not cached: %+v", c.Sites[0])
 	}
-	if len(a.home) < 2 || a.home[0].Name != hotLaneName || a.home[0].Items[0].Title != "热播片" || a.home[1].Name != "电影" {
+	if len(a.home) < 2 || a.home[0].Name != "最新影视" || a.home[0].Items[0].Title != "热播片" || a.home[1].Name != "电影" {
 		t.Fatalf("home %v", laneNames(a.home))
 	}
 	if len(a.lookup[normTitle("热播片")]) != 1 {
@@ -254,7 +254,7 @@ func TestLegacyCacheForcesRecollection(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("legacy cache did not trigger a fresh collection")
 	}
-	if len(a.home) != 1 || a.home[0].Name != hotLaneName || a.home[0].Items[0].Title != "重采片" {
+	if len(a.home) != 1 || a.home[0].Name != "最新影视" || a.home[0].Items[0].Title != "重采片" {
 		t.Fatalf("home %v", laneNames(a.home))
 	}
 	c := a.readCache(ref)

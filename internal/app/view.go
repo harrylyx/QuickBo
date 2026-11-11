@@ -38,7 +38,8 @@ func (a *App) View(c *ui.Context) {
 	a.playerKeys(c)
 	if a.catalog == nil {
 		a.viewWelcome(c, th)
-	} else if a.screen == screenPlay {
+	} else if a.screen == screenPlay || a.screen == screenLive && a.fullscreen && a.fromLive && a.embedded() {
+		// A live channel in fullscreen takes the whole window, as a VOD does.
 		ui.Box(c).Fill().Background(ui.Hex("#000000")).Children(func() {
 			a.viewPlay(c, th)
 		})
@@ -384,6 +385,18 @@ func (a *App) openSettings() {
 	a.settingsOpen = true
 }
 
+// hoverAction builds a row's hover-only button at all times and only toggles
+// whether it shows. Building it on hover alone made the row taller while
+// hovered, so after a delete the row sliding under the pointer grew, moved
+// the rows below, and the sidebar shook.
+func (a *App) hoverAction(c *ui.Context, show bool, build func()) {
+	slot := ui.Row(c).Shrink(0)
+	if !show {
+		slot = slot.Invisible()
+	}
+	slot.Children(build)
+}
+
 func (a *App) viewSidebar(c *ui.Context, th *ui.Theme) {
 	ui.Column(c).Width(sideWidth).FillHeight().Background(sidebarInk(a.light)).Padding(20, 12, 16, 12).Gap(18).Children(func() {
 		ui.Row(c).Gap(10).AlignItems(ui.Center).Padding(2, 8, 0, 8).Children(func() {
@@ -421,11 +434,11 @@ func (a *App) viewSidebar(c *ui.Context, th *ui.Theme) {
 							}
 						})
 						item.Children(func() {
-							if hovered {
+							a.hoverAction(c, hovered, func() {
 								a.iconBtn(c, "drop-site:"+key, iconClose, "移除源", 24, 14, th.TextMuted, func() {
 									a.dropSite(key)
 								})
-							}
+							})
 						})
 					}
 					for _, li := range g.lives {
@@ -438,11 +451,11 @@ func (a *App) viewSidebar(c *ui.Context, th *ui.Theme) {
 							}
 						})
 						item.Children(func() {
-							if hovered {
+							a.hoverAction(c, hovered, func() {
 								a.iconBtn(c, "drop-live:"+lv.URL, iconClose, "移除直播源", 24, 14, th.TextMuted, func() {
 									a.dropLive(lv.URL)
 								})
-							}
+							})
 						})
 					}
 				})

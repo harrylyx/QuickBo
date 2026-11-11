@@ -346,7 +346,7 @@ func (a *App) LoadSubs(refs []string) {
 	key := comboKey(refs)
 	subs := cloneSubs(a.subs)
 	go func() {
-		cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		cctx, cancel := context.WithTimeout(withUserRefs(ctx, refs), 30*time.Second)
 		defer cancel()
 		cfgs := a.fetchEntries(cctx, refs, 0, &refSeen{m: map[string]struct{}{}})
 		merged := mergeConfigs(cfgs)

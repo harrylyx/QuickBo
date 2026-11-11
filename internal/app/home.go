@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -93,9 +94,14 @@ func (a *App) dropSite(key string) {
 		a.detail = nil
 		a.cats = nil
 	}
-	a.screen = screenHome
-	a.sideSel = "home"
-	a.lastSide = "home"
+	// Leave the current screen alone unless it was showing the source just
+	// removed: swapping the main view on every delete from the sidebar is
+	// what made deleting feel jumpy.
+	if a.sideSel == "site:"+key {
+		a.screen = screenHome
+		a.sideSel = "home"
+		a.lastSide = "home"
+	}
 	a.saveSettings()
 }
 
@@ -114,8 +120,20 @@ func (a *App) removeSites(keys []string) {
 	if len(drop) == 0 {
 		return
 	}
-	kept := make([]source.Source, 0, len(a.catalog.Sites))
+	// Hide from the full list, not just the catalog: a source that failed its
+	// probe is listed in the management view (allSites) but was never put in
+	// the catalog, and must be removable too.
 	removed := false
+	for _, s := range a.allSites {
+		if drop[s.Meta().Key] {
+			if a.hidden == nil {
+				a.hidden = map[string]bool{}
+			}
+			a.hidden[sourceHideID(s)] = true
+			removed = true
+		}
+	}
+	kept := make([]source.Source, 0, len(a.catalog.Sites))
 	for _, s := range a.catalog.Sites {
 		if drop[s.Meta().Key] {
 			if a.hidden == nil {
@@ -268,15 +286,17 @@ func (a *App) dropLive(url string) {
 	}
 	url = strings.TrimSpace(url)
 	kept := make([]*source.LiveEntry, 0, len(a.catalog.Lives))
-	found := false
-	for _, lv := range a.catalog.Lives {
+	removedAt := -1
+	for i, lv := range a.catalog.Lives {
 		if strings.TrimSpace(lv.URL) == url {
-			found = true
+			if removedAt < 0 {
+				removedAt = i
+			}
 			continue
 		}
 		kept = append(kept, lv)
 	}
-	if !found {
+	if removedAt < 0 {
 		return
 	}
 	a.catalog.Lives = kept
@@ -284,9 +304,21 @@ func (a *App) dropLive(url string) {
 		a.hidden = map[string]bool{}
 	}
 	a.hidden[liveHideID(url)] = true
-	a.screen = screenHome
-	a.sideSel = "home"
-	a.lastSide = "home"
+	// Sidebar ids are live:<index>, so the lists after the removed one move
+	// up by one. Only leave the screen if it showed the removed list.
+	viewing := strings.HasPrefix(a.sideSel, "live:")
+	switch {
+	case viewing && a.liveIndex == removedAt:
+		a.screen = screenHome
+		a.sideSel = "home"
+		a.lastSide = "home"
+	case a.liveIndex > removedAt:
+		a.liveIndex--
+		if viewing {
+			a.sideSel = "live:" + strconv.Itoa(a.liveIndex)
+			a.lastSide = a.sideSel
+		}
+	}
 	a.saveSettings()
 }
 

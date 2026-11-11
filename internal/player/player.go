@@ -7,6 +7,7 @@ package player
 import (
 	"context"
 	"encoding/json"
+	"image"
 	"net/url"
 	"strings"
 	"time"
@@ -41,6 +42,18 @@ type Player interface {
 	// Err is the last terminal playback error, cleared by Load.
 	Err() error
 	Close() error
+}
+
+// VideoSource is a Player that renders its video into frames the app draws
+// itself, rather than into a window of its own.
+type VideoSource interface {
+	// SetVideoSize tells the player the size, in device pixels, the video
+	// is shown at; frames are rendered at that size.
+	SetVideoSize(w, h int)
+	// TakeFrame returns the newest frame not yet taken, or nil. Its pixels
+	// stay unchanged until the next frame is taken, so it can be shown
+	// without a copy.
+	TakeFrame() *image.RGBA
 }
 
 // IsDirect reports whether raw already looks like a media address, so it

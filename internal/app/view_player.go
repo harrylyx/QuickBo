@@ -2,11 +2,13 @@ package app
 
 import (
 	"fmt"
+	"image"
 	"strings"
 	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/harrylyx/QuickBo/internal/model"
+	"github.com/harrylyx/QuickBo/internal/player"
 )
 
 // rateList is the playback speed cycle, toggled by the rate button.
@@ -22,14 +24,25 @@ const bufferingShowDelay = 350 * time.Millisecond
 
 func (a *App) playerKeys(c *ui.Context) {
 	if a.screen != screenPlay && a.screen != screenLive {
+		// Leaving the player ends the app window's fullscreen.
+		if a.fullscreen {
+			a.setFullscreen(false)
+		}
 		return
 	}
 	if a.player == nil {
 		return
 	}
-	// Keep the local fullscreen flag in sync with mpv's own window state, so a
-	// toggle always flips the right way even after mpv's OSC or Escape exits it.
-	a.fullscreen = a.player.Fullscreen()
+	// Keep the local fullscreen flag in sync with the real state, so a toggle
+	// always flips the right way even after the system (the window's green
+	// button) or mpv's own OSC/Escape changed it.
+	if a.embedded() {
+		if a.win != nil {
+			a.fullscreen = a.win.IsFullScreen()
+		}
+	} else {
+		a.fullscreen = a.player.Fullscreen()
+	}
 	switch {
 	case c.Shortcut(0, ui.KeySpace):
 		// Live/embedded fallback: no focused element consumes space, so it
@@ -68,8 +81,8 @@ func (a *App) playerKeys(c *ui.Context) {
 	if a.player.Playing() {
 		a.noteProgress()
 	}
-	// mpv renders in its own window, so nothing in this view repaints on its
-	// own. Keep a slow frame loop alive while playing so the progress and
+	// Video frames repaint only the video element (paintVideo), not the
+	// view. Keep a slow frame loop alive while playing so the progress and
 	// buffer bars move, and while space is held so the boost can kick in.
 	if a.player.Playing() || a.player.Buffering() || !a.spaceDownAt.IsZero() {
 		c.After(250 * time.Millisecond)
@@ -135,11 +148,54 @@ func (a *App) toggleFull() {
 	a.armControls()
 }
 
+// setFullscreen fullscreens the app window when the video plays inside it,
+// or mpv's own window when it plays there.
 func (a *App) setFullscreen(on bool) {
 	a.fullscreen = on
-	if a.player != nil {
+	if a.player != nil && !a.embedded() {
 		a.player.SetFullscreen(on)
+		return
 	}
+	if a.win != nil && a.win.IsFullScreen() != on {
+		a.win.SetFullScreen(on)
+	}
+}
+
+// embedded reports whether the current player draws its video in the app
+// window (libmpv) rather than in a window of its own (an mpv process).
+func (a *App) embedded() bool {
+	_, ok := a.player.(player.VideoSource)
+	return ok
+}
+
+// paintVideo draws an embedded player's frames. Its Draw callback runs again
+// every display frame while the video moves, without building the view: it
+// tells the player the size to render at and shows the newest frame.
+func (a *App) paintVideo(c *ui.Context, vs player.VideoSource) {
+	if a.videoBM == nil {
+		a.videoBM = ui.NewBitmap(image.NewRGBA(image.Rect(0, 0, 1, 1)))
+	}
+	bm := a.videoBM
+	pl := a.player
+	ui.Box(c).Absolute().Left(0).Right(0).Top(0).Bottom(0).Draw(func(p *ui.Painter, r ui.Rect) {
+		s := p.Scale()
+		vs.SetVideoSize(int(r.W*s+0.5), int(r.H*s+0.5))
+		if img := vs.TakeFrame(); img != nil {
+			bm.Update(img)
+			a.videoShown = true
+		}
+		if a.videoShown {
+			// The frame is rendered at this element's size, letterboxed by
+			// mpv, so it fills the box; Contain absorbs the width rounding.
+			p.Image(bm, r, ui.Contain)
+		}
+		if pl.Playing() || pl.Buffering() || !pl.Ready() || !a.videoShown {
+			p.AnimationFrameRate(60)
+		} else {
+			// Paused: frames still come after a seek or a resize.
+			p.After(100 * time.Millisecond)
+		}
+	})
 }
 
 func (a *App) armControls() {
@@ -277,7 +333,9 @@ func (a *App) paintStage(c *ui.Context, th *ui.Theme, embed bool) {
 		radius = 18
 	}
 	stage.Radius(radius).Clip().Background(ui.Hex("#000000")).Children(func() {
-		if a.player != nil {
+		if vs, ok := a.player.(player.VideoSource); ok {
+			a.paintVideo(c, vs)
+		} else if a.player != nil {
 			ui.Column(c).Fill().Center().Children(func() {
 				ui.Text(c, "视频在 mpv 窗口中播放").FontSize(fontCaption).TextColor(th.AccentText.Alpha(0.55))
 			})

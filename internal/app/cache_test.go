@@ -213,7 +213,7 @@ func TestApplyRestoresHotLaneFromCache(t *testing.T) {
 		Key: "site1", Name: "甲", Type: config.TypeJSON, API: "https://example.com/api.php",
 	}}}
 	a.apply(cfg, ref)
-	if len(a.home) != 2 || a.home[0].Key != hotLaneID || a.home[0].Name != hotLaneName ||
+	if len(a.home) != 2 || a.home[0].Key != latestRuleID || a.home[0].Name != "最新影视" ||
 		a.home[0].Items[0].Title != "热播片" || a.home[1].Name != "电影" {
 		t.Fatalf("home %v", laneNames(a.home))
 	}

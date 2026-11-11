@@ -325,11 +325,11 @@ func TestHotRailHidesAllSourceLink(t *testing.T) {
 	a.sideSel = "home"
 	a.lastSide = "home"
 	a.home = []homeLane{{
-		Key: hotLaneID, Name: hotLaneName,
+		Key: latestRuleID, Name: "最新影视",
 		Items: []model.Item{{ID: titlePrefix + "hot-title", Title: "热播片"}},
 	}}
 	tt := ui.NewTester(a.View, 1200, 800)
-	if !tt.HasText(hotLaneName) {
+	if !tt.HasText("最新影视") {
 		t.Fatalf("missing hot rail: %q", tt.Texts())
 	}
 	if _, ok := tt.Find("全部"); ok {
