@@ -161,7 +161,7 @@ func (a *App) restoreFromCache(c *cacheData, full *source.Catalog) {
 	a.catalog = &source.Catalog{Parses: full.Parses, Index: full.Index}
 	for _, s := range full.Sites {
 		m := s.Meta()
-		if !c.hasSite(m.Key) || a.hidden[sourceHideID(s)] || a.blacklisted(m.Name) {
+		if !c.hasSite(m.Key) || a.hidden[sourceHideID(s)] || a.disabled[sourceHideID(s)] || a.blacklisted(m.Name) {
 			continue
 		}
 		a.catalog.Sites = append(a.catalog.Sites, s)

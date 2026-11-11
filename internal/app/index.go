@@ -78,6 +78,7 @@ func (a *App) expandIndex(entries []config.NamedURL) {
 				return
 			}
 			opened := source.Open(merged)
+			a.allSites = append([]source.Source(nil), opened.Sites...)
 			if len(opened.Sites) == 0 && len(opened.Lives) == 0 {
 				a.loading = false
 				a.loadNote = ""
@@ -180,6 +181,9 @@ func (a *App) keepWorking(ctx context.Context, full *source.Catalog) {
 	for id := range a.hidden {
 		skipped[id] = true
 	}
+	for id := range a.disabled {
+		skipped[id] = true
+	}
 	ref := a.cfgRef
 	go func() {
 		okSite := make([]bool, len(sites))
@@ -214,7 +218,7 @@ func (a *App) keepWorking(ctx context.Context, full *source.Catalog) {
 				}
 				siteSnap := make([]source.Source, 0, len(got))
 				for _, g := range got {
-					if a.hidden[sourceHideID(g.src)] || a.blacklisted(g.src.Meta().Name) {
+					if a.hidden[sourceHideID(g.src)] || a.disabled[sourceHideID(g.src)] || a.blacklisted(g.src.Meta().Name) {
 						continue
 					}
 					siteSnap = append(siteSnap, g.src)
@@ -587,6 +591,7 @@ func (a *App) recollect() {
 	a.ballots = nil
 	a.home = nil
 	full := source.Open(a.cfg)
+	a.allSites = append([]source.Source(nil), full.Sites...)
 	a.catalog = &source.Catalog{Parses: full.Parses, Index: full.Index}
 	a.keepWorking(a.loadCtxOrBackground(), full)
 }

@@ -48,6 +48,10 @@ func hiddenIDs(set map[string]bool) []string {
 	return out
 }
 
+func disabledIDs(set map[string]bool) []string {
+	return hiddenIDs(set)
+}
+
 func (a *App) dropSite(key string) {
 	if a.catalog == nil {
 		return
@@ -153,6 +157,109 @@ func (a *App) removeSites(keys []string) {
 	}
 	a.srcSel = nil
 	a.saveSettings()
+}
+
+// disableSites turns sources off without removing them from the subscription.
+// They stay visible in the management list and can be re-enabled.
+func (a *App) disableSites(keys []string) {
+	if len(keys) == 0 {
+		return
+	}
+	drop := map[string]bool{}
+	for _, k := range keys {
+		if k = strings.TrimSpace(k); k != "" {
+			drop[k] = true
+		}
+	}
+	if a.disabled == nil {
+		a.disabled = map[string]bool{}
+	}
+	for _, s := range a.allSites {
+		if drop[s.Meta().Key] {
+			a.disabled[sourceHideID(s)] = true
+		}
+	}
+	if a.catalog != nil {
+		kept := a.catalog.Sites[:0]
+		for _, s := range a.catalog.Sites {
+			if drop[s.Meta().Key] {
+				continue
+			}
+			kept = append(kept, s)
+		}
+		a.catalog.Sites = kept
+	}
+	before := len(a.ballots)
+	keptBallots := a.ballots[:0]
+	for _, b := range a.ballots {
+		if !drop[b.SiteKey] {
+			keptBallots = append(keptBallots, b)
+		}
+	}
+	a.ballots = keptBallots
+	if len(a.ballots) != before {
+		a.rebuildHome()
+	} else {
+		for k := range drop {
+			a.home = withoutLane(a.home, k)
+		}
+	}
+	for k := range drop {
+		a.homeHits = withoutLane(a.homeHits, k)
+	}
+	if a.siteKey != "" && drop[a.siteKey] {
+		a.siteKey = ""
+		a.page = model.Page{}
+		a.detail = nil
+		a.cats = nil
+	}
+	a.srcSel = nil
+	a.saveSettings()
+}
+
+// enableSites re-enables sources and re-collects their content in place.
+func (a *App) enableSites(keys []string) {
+	if len(keys) == 0 {
+		return
+	}
+	for _, k := range keys {
+		k = strings.TrimSpace(k)
+		if s := a.findAll(k); s != nil {
+			delete(a.disabled, sourceHideID(s))
+		}
+	}
+	a.srcSel = nil
+	a.saveSettings()
+	a.recollect()
+}
+
+// addSourcesBlacklist hides every selected source by name (batch add).
+func (a *App) addSourcesBlacklist(keys []string) {
+	if len(keys) == 0 {
+		return
+	}
+	seen := map[string]bool{}
+	for _, kw := range a.blacklist {
+		seen[strings.ToLower(kw)] = true
+	}
+	changed := false
+	for _, k := range keys {
+		s := a.findAll(k)
+		if s == nil {
+			continue
+		}
+		name := strings.TrimSpace(s.Meta().Name)
+		if name == "" || seen[strings.ToLower(name)] {
+			continue
+		}
+		seen[strings.ToLower(name)] = true
+		a.blacklist = append(a.blacklist, name)
+		changed = true
+	}
+	if changed {
+		a.srcSel = nil
+		a.reloadSubs()
+	}
 }
 
 func (a *App) dropLive(url string) {

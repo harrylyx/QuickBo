@@ -139,16 +139,25 @@ type App struct {
 	lib            *library
 
 	// Subscription and source management.
-	subSort        string           // 订阅排序键：name/ref/enabled/count
-	subFilter      string           // 订阅列表搜索关键字
-	subSel         map[string]bool  // 批量选中的订阅 ref
-	subBatch       bool             // 订阅批量管理模式
-	srcFilter      string           // 片源管理搜索关键字
-	srcSel         map[string]bool  // 批量选中的片源 key
-	srcBatch       bool             // 片源批量管理模式
-	blacklist      []string         // 片源黑名单关键字
-	blacklistDraft string           // 黑名单关键字输入框
-	sidebarOpen    map[string]*bool // 侧边栏分组的展开状态（按分组名）
+	subSort        string                // 订阅排序键：name/ref/enabled/count
+	subFilter      string                // 订阅列表搜索关键字
+	subSel         map[string]bool       // 批量选中的订阅 ref
+	subBatch       bool                  // 订阅批量管理模式
+	srcFilter      string                // 片源管理搜索关键字
+	srcSort        string                // 片源排序键：名称/延迟/类型/健康度/订阅
+	srcHealth      string                // 片源健康度筛选：全部/仅可用/仅失败/仅未测/较慢
+	srcView        string                // 片源分组视图：列表/按订阅/按类型/按健康度
+	srcSel         map[string]bool       // 批量选中的片源 key
+	srcBatch       bool                  // 片源批量管理模式
+	disabled       map[string]bool       // 停用的片源（sourceHideID），保留在管理列表但不下发
+	allSites       []source.Source       // 订阅里的全部片源（含停用/不支持/未通过检测）
+	persistedStats map[string]sourceStat // 从设置恢复的测速结果（按 sourceHideID）
+	probingActive  bool                  // 批量测速进行中
+	probingDone    int                   // 批量测速已完成数量
+	probingTotal   int                   // 批量测速总数
+	blacklist      []string              // 片源黑名单关键字
+	blacklistDraft string                // 黑名单关键字输入框
+	sidebarOpen    map[string]*bool      // 侧边栏分组的展开状态（按分组名）
 
 	browseScroll ui.ScrollState
 	appending    bool
@@ -183,14 +192,16 @@ type App struct {
 }
 
 type savedSettings struct {
-	Config         string         `json:"config,omitempty"`
-	Subs           []subscription `json:"subs,omitempty"`
-	PreferExternal bool           `json:"preferExternal"`
-	Light          bool           `json:"light,omitempty"`
-	Volume         *float64       `json:"volume,omitempty"`
-	Hidden         []string       `json:"hidden,omitempty"`
-	Blacklist      []string       `json:"blacklist,omitempty"`
-	HomeRules      []homeRule     `json:"homeRules,omitempty"`
+	Config          string                `json:"config,omitempty"`
+	Subs            []subscription        `json:"subs,omitempty"`
+	PreferExternal  bool                  `json:"preferExternal"`
+	Light           bool                  `json:"light,omitempty"`
+	Volume          *float64              `json:"volume,omitempty"`
+	Hidden          []string              `json:"hidden,omitempty"`
+	Blacklist       []string              `json:"blacklist,omitempty"`
+	DisabledSources []string              `json:"disabledSources,omitempty"`
+	SourceStats     map[string]sourceStat `json:"sourceStats,omitempty"`
+	HomeRules       []homeRule            `json:"homeRules,omitempty"`
 }
 
 // New returns an empty shell. No subscription is loaded until the user
@@ -303,6 +314,19 @@ func (a *App) RestoreSettings() []string {
 			a.blacklist = append(a.blacklist, kw)
 		}
 	}
+	a.disabled = map[string]bool{}
+	for _, id := range s.DisabledSources {
+		if id = strings.TrimSpace(id); id != "" {
+			a.disabled[id] = true
+		}
+	}
+	a.persistedStats = nil
+	if len(s.SourceStats) > 0 {
+		a.persistedStats = map[string]sourceStat{}
+		for id, st := range s.SourceStats {
+			a.persistedStats[id] = st
+		}
+	}
 	if len(s.HomeRules) > 0 {
 		a.homeRules = normalizeRules(s.HomeRules)
 		a.resetRuleEdits()
@@ -346,6 +370,8 @@ func (a *App) apply(cfg *config.Config, ref string) {
 	a.cfg = cfg
 	a.cfgRef = ref
 	a.catalog = source.Open(cfg)
+	a.allSites = append([]source.Source(nil), a.catalog.Sites...)
+	a.applyPersistedStats()
 	// A different subscription set must not keep votes from the previous one.
 	a.ballots = nil
 	a.detail = nil
@@ -889,6 +915,54 @@ func (a *App) currentMeta() (source.Meta, bool) {
 	return src.Meta(), true
 }
 
+// findAll returns a source from the full subscription list by its key, so the
+// management view can address sources that did not make it into the catalog
+// (disabled, unsupported or failed probe).
+func (a *App) findAll(key string) source.Source {
+	for _, s := range a.allSites {
+		if s.Meta().Key == key {
+			return s
+		}
+	}
+	return nil
+}
+
+// statsSnapshot persists speed results keyed by the stable sourceHideID, so
+// they survive a reload even when mergeConfigs renames a duplicate key.
+func (a *App) statsSnapshot() map[string]sourceStat {
+	if len(a.stats) == 0 {
+		return nil
+	}
+	out := map[string]sourceStat{}
+	for key, st := range a.stats {
+		id := key
+		if s := a.catalog.Find(key); s != nil {
+			id = sourceHideID(s)
+		} else if s := a.findAll(key); s != nil {
+			id = sourceHideID(s)
+		}
+		out[id] = st
+	}
+	return out
+}
+
+// applyPersistedStats maps restored speed results (keyed by sourceHideID) back
+// onto the freshly built catalog's Meta.Key values.
+func (a *App) applyPersistedStats() {
+	if len(a.persistedStats) == 0 {
+		return
+	}
+	if a.stats == nil {
+		a.stats = map[string]sourceStat{}
+	}
+	for _, s := range a.allSites {
+		if st, ok := a.persistedStats[sourceHideID(s)]; ok {
+			a.stats[s.Meta().Key] = st
+		}
+	}
+	a.persistedStats = nil
+}
+
 func (a *App) bump() int {
 	a.gen++
 	return a.gen
@@ -923,9 +997,11 @@ func (a *App) saveSettings() {
 	s := savedSettings{
 		Config: a.primaryRef(), Subs: cloneSubs(a.subs),
 		PreferExternal: a.preferExternal, Light: a.light, Volume: &vol,
-		Hidden:    hiddenIDs(a.hidden),
-		Blacklist: cloneBlacklist(a.blacklist),
-		HomeRules: cloneRules(a.homeRules),
+		Hidden:          hiddenIDs(a.hidden),
+		Blacklist:       cloneBlacklist(a.blacklist),
+		DisabledSources: disabledIDs(a.disabled),
+		SourceStats:     a.statsSnapshot(),
+		HomeRules:       cloneRules(a.homeRules),
 	}
 	b, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {

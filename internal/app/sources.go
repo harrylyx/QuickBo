@@ -9,24 +9,90 @@ import (
 	"strings"
 	"time"
 
+	"github.com/harrylyx/QuickBo/internal/config"
 	"github.com/harrylyx/QuickBo/internal/httpx"
+	"github.com/harrylyx/QuickBo/internal/source"
 	"golang.org/x/net/idna"
 )
 
 // sourceStat is the last speed test of one site.
 type sourceStat struct {
-	Delay int
-	IP    string
-	Place string
-	Err   string
+	Delay int    `json:"delay"`
+	IP    string `json:"ip,omitempty"`
+	Place string `json:"place,omitempty"`
+	Err   string `json:"err,omitempty"`
+}
+
+// healthTier buckets a speed test into a short label for the summary bar and
+// the health grouping. It is deliberately separate from statColor, which only
+// chooses a text color.
+func healthTier(st sourceStat) string {
+	switch {
+	case st.Err != "" || st.Delay < 0:
+		return "失败"
+	case st.Delay == 0:
+		return "未测"
+	case st.Delay < 200:
+		return "优秀"
+	case st.Delay < 500:
+		return "良好"
+	case st.Delay < 1000:
+		return "一般"
+	default:
+		return "较慢"
+	}
+}
+
+// healthRank orders tiers from fastest to worst; unknown sorts after known.
+func healthRank(st sourceStat) int {
+	switch {
+	case st.Err != "" || st.Delay < 0:
+		return 5
+	case st.Delay == 0:
+		return 4
+	case st.Delay < 200:
+		return 0
+	case st.Delay < 500:
+		return 1
+	case st.Delay < 1000:
+		return 2
+	default:
+		return 3
+	}
+}
+
+// probeableSites lists the sources worth a speed test: everything kept and
+// listed in the management view except unsupported entries.
+func (a *App) probeableSites() []source.Source {
+	var out []source.Source
+	for _, s := range a.allSites {
+		m := s.Meta()
+		if a.hidden[sourceHideID(s)] || a.blacklisted(m.Name) || a.disabled[sourceHideID(s)] || m.Level == config.LevelNo {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
 }
 
 func (a *App) probeAllSources() {
-	if a.catalog == nil {
+	keys := make([]string, 0, len(a.probeableSites()))
+	for _, s := range a.probeableSites() {
+		keys = append(keys, s.Meta().Key)
+	}
+	a.probeSources(keys)
+}
+
+// probeSources sweeps a chosen set of sources and reports one progress bar.
+func (a *App) probeSources(keys []string) {
+	if len(keys) == 0 {
 		return
 	}
-	for _, s := range a.catalog.Sites {
-		a.probeSource(s.Meta().Key)
+	a.probingTotal = len(keys)
+	a.probingDone = 0
+	a.probingActive = true
+	for _, k := range keys {
+		a.probeSource(k)
 	}
 }
 
@@ -35,6 +101,9 @@ func (a *App) probeSource(key string) {
 		return
 	}
 	src := a.catalog.Find(key)
+	if src == nil {
+		src = a.findAll(key)
+	}
 	if src == nil {
 		return
 	}
@@ -55,11 +124,26 @@ func (a *App) probeSource(key string) {
 				a.stats = map[string]sourceStat{}
 			}
 			a.stats[key] = st
+			a.finishProbe()
 			if a.screen == screenDetail {
 				a.sortOffers()
 			}
 		})
 	}()
+}
+
+// finishProbe advances the batch progress and persists the speed results once
+// the whole sweep (or a lone probe) is complete.
+func (a *App) finishProbe() {
+	if a.probingActive {
+		a.probingDone++
+		if a.probingDone >= a.probingTotal {
+			a.probingActive = false
+		}
+	}
+	if !a.probingActive {
+		a.saveSettings()
+	}
 }
 
 func measureSource(ctx context.Context, raw string) sourceStat {
