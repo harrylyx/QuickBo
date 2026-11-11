@@ -620,13 +620,14 @@ func (a *App) episodeDrawer(c *ui.Context, th *ui.Theme) {
 
 func (a *App) iconBtn(c *ui.Context, key string, glyph *ui.SVG, tip string, box, glyphPx float32, fg ui.Color, click func()) {
 	b := ui.Column(c.Key(key)).Size(box, box).Radius(box / 2).Center().OnClick(click).Cursor(ui.CursorPointer).Tooltip(tip).Label(tip)
-	switch {
-	case b.Pressed():
-		b.Background(fg.Alpha(0.22))
-	case b.Hovered():
-		b.Background(fg.Alpha(0.12))
+	// A soft disc under the pointer, and a give as it is pressed.
+	bg := ui.Transparent
+	if b.Hovered() {
+		bg = fg.Alpha(0.14)
 	}
-	b.Transition(ui.ElementTransition{Duration: 150 * time.Millisecond}).Children(func() {
+	b.Background(b.AnimateColor("bg", bg, colorEase))
+	pressPose(b, 0.88)
+	b.Children(func() {
 		ui.Icon(c, glyph).Size(glyphPx, glyphPx).TextColor(fg)
 	})
 }

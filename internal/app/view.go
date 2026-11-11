@@ -46,44 +46,55 @@ func (a *App) View(c *ui.Context) {
 	} else {
 		ui.Row(c).Fill().AlignItems(ui.Stretch).Children(func() {
 			a.viewSidebar(c, th)
-			ui.Box(c).Width(1).FillHeight().Background(th.Border)
-			ui.Column(c).Grow(1).Children(func() {
-				a.viewTop(c, th)
-				ui.Box(c).FillWidth().Height(1).Background(th.Border)
-				ui.Column(c).Grow(1).Children(func() {
-					if a.screen == screenHome {
-						a.viewHome(c, th)
-						return
+			main := ui.Box(c.Key("main")).Grow(1).FillHeight().Background(th.Background).Clip()
+			main.Children(func() {
+				// The detail page sits on its poster: blurred, tinted with the
+				// poster's color, fading into the page (detailBackdrop).
+				if a.screen == screenDetail {
+					a.detailBackdrop(c, th)
+				}
+				// Positioned too, after the backdrop, so it paints over it:
+				// mygo paints positioned elements over the flow.
+				ui.Column(c).Absolute().Left(0).Right(0).Top(0).Bottom(0).Children(func() {
+					a.viewTop(c, th)
+					if a.screen != screenDetail {
+						ui.Box(c).FillWidth().Height(1).Background(th.Border)
 					}
-					if a.screen == screenBrowse {
-						a.viewBrowse(c, th)
-						return
-					}
-					ui.Column(c).Grow(1).Padding(20, pagePad, 16, pagePad).Gap(16).Children(func() {
-						switch a.screen {
-						case screenHistory:
-							a.viewHistory(c, th)
-						case screenFav:
-							a.viewFavs(c, th)
-						case screenSources:
-							a.viewSources(c, th)
-						case screenRules:
-							a.viewRules(c, th)
-						case screenIndex:
-							a.viewIndex(c, th)
-						case screenUnsupported:
-							a.viewUnsupported(c, th)
-						case screenDetail:
-							a.viewDetail(c, th)
-						case screenLive:
-							a.viewLive(c, th)
-						case screenEmpty:
-							a.emptyState(c, th, "这份配置是空的", "没有点播站，也没有直播。换一份配置，或往里面加上站点。",
-								stateAction{label: "添加订阅", primary: true, click: a.openSubs},
-								stateAction{label: "打开本地文件", click: a.pickFile})
-						default:
-							a.viewBrowse(c, th)
+					ui.Column(c).Grow(1).Children(func() {
+						if a.screen == screenHome {
+							a.viewHome(c, th)
+							return
 						}
+						if a.screen == screenBrowse {
+							a.viewBrowse(c, th)
+							return
+						}
+						ui.Column(c).Grow(1).Padding(20, pagePad, 16, pagePad).Gap(16).Children(func() {
+							switch a.screen {
+							case screenHistory:
+								a.viewHistory(c, th)
+							case screenFav:
+								a.viewFavs(c, th)
+							case screenSources:
+								a.viewSources(c, th)
+							case screenRules:
+								a.viewRules(c, th)
+							case screenIndex:
+								a.viewIndex(c, th)
+							case screenUnsupported:
+								a.viewUnsupported(c, th)
+							case screenDetail:
+								a.viewDetail(c, th)
+							case screenLive:
+								a.viewLive(c, th)
+							case screenEmpty:
+								a.emptyState(c, th, "这份配置是空的", "没有点播站，也没有直播。换一份配置，或往里面加上站点。",
+									stateAction{label: "添加订阅", primary: true, click: a.openSubs},
+									stateAction{label: "打开本地文件", click: a.pickFile})
+							default:
+								a.viewBrowse(c, th)
+							}
+						})
 					})
 				})
 			})
@@ -336,7 +347,11 @@ func (a *App) viewSettings(c *ui.Context, th *ui.Theme) {
 				})
 			})
 
-			ui.Text(c, "片源黑名单").FontSize(fontCaption).TextColor(th.TextMuted)
+			bl := "片源黑名单"
+			if n := len(a.blacklist); n > 0 {
+				bl = fmt.Sprintf("片源黑名单（%d 个关键字）", n)
+			}
+			ui.Text(c, bl).FontSize(fontCaption).TextColor(th.TextMuted)
 			ui.Text(c, "片源或直播名称命中这些关键字时会被全局隐藏，移出黑名单后恢复。改动会重新加载订阅（优先走本地缓存）。").TextColor(th.TextMuted).Wrap()
 			field := ui.TextInput(c, &a.blacklistDraft).Placeholder("关键字，如「测试」「广告」").Label("黑名单关键字")
 			if field.Submitted() {
@@ -345,20 +360,24 @@ func (a *App) viewSettings(c *ui.Context, th *ui.Theme) {
 			}
 			stop := false
 			if len(a.blacklist) > 0 {
-				ui.Row(c).Gap(8).Wrap().Children(func() {
-					for i := range a.blacklist {
-						kw := a.blacklist[i]
-						ui.Row(c.Key("bl:"+kw)).Padding(6, 10).Radius(8).Background(th.Surface).AlignItems(ui.Center).Gap(6).Children(func() {
-							ui.Text(c, kw).FontSize(fontBody).SingleLine()
-							a.iconBtn(c, "bl-drop:"+kw, iconClose, "移除关键字", 20, 12, th.TextMuted, func() {
-								a.removeBlacklist(kw)
-								stop = true
+				// A long list scrolls inside the dialog instead of pushing it
+				// past the window.
+				ui.Scroll(c.Key("bl-scroll")).MaxHeight(200).Children(func() {
+					ui.Row(c).Gap(8).Wrap().Padding(0, 6, 0, 0).Children(func() {
+						for i := range a.blacklist {
+							kw := a.blacklist[i]
+							ui.Row(c.Key("bl:"+kw)).Padding(6, 10).Radius(8).Background(th.Surface).AlignItems(ui.Center).Gap(6).Children(func() {
+								ui.Text(c, kw).FontSize(fontBody).SingleLine()
+								a.iconBtn(c, "bl-drop:"+kw, iconClose, "移除关键字", 20, 12, th.TextMuted, func() {
+									a.removeBlacklist(kw)
+									stop = true
+								})
 							})
-						})
-						if stop {
-							return
+							if stop {
+								return
+							}
 						}
-					}
+					})
 				})
 			}
 			if stop {
@@ -398,15 +417,16 @@ func (a *App) hoverAction(c *ui.Context, show bool, build func()) {
 }
 
 func (a *App) viewSidebar(c *ui.Context, th *ui.Theme) {
-	ui.Column(c).Width(sideWidth).FillHeight().Background(sidebarInk(a.light)).Padding(20, 12, 16, 12).Gap(18).Children(func() {
+	ink := sidebarInk(a.light)
+	col := ui.Themed(c, sidebarTheme(th, ink)).Width(sideWidth).FillHeight().Background(ink).Padding(20, 12, 16, 12).Gap(18)
+	col.Children(func() {
 		ui.Row(c).Gap(10).AlignItems(ui.Center).Padding(2, 8, 0, 8).Children(func() {
-			ui.Column(c).Size(28, 28).Radius(7).Background(th.Accent).Center().Children(func() {
+			ui.Column(c).Size(30, 30).Radius(9).Center().
+				LinearGradient(ui.LinearGradient{From: th.Accent.MixOklab(ui.Hex("#ffffff"), 0.18), To: th.Accent.MixOklab(ui.Hex("#000000"), 0.2), Angle: 160, Oklab: true}).
+				Shadow(0, 4, 12, -2, th.Accent.Alpha(0.45)).Children(func() {
 				ui.Icon(c, iconPlay).Size(12, 12).TextColor(th.AccentText)
 			})
-			ui.Column(c).Gap(1).Children(func() {
-				ui.Text(c, "QuickBo").FontSize(fontBody).Bold()
-				ui.Text(c, "桌面播放器").FontSize(fontCaption).TextColor(th.TextMuted)
-			})
+			ui.Text(c, "QuickBo").FontSize(fontTitle).FontWeight(weightTitle)
 		})
 		side := ui.Sidebar(c, &a.sideSel, func() {
 			ui.SidebarSection(c, "导航", nil, func() {
@@ -435,7 +455,7 @@ func (a *App) viewSidebar(c *ui.Context, th *ui.Theme) {
 						})
 						item.Children(func() {
 							a.hoverAction(c, hovered, func() {
-								a.iconBtn(c, "drop-site:"+key, iconClose, "移除源", 24, 14, th.TextMuted, func() {
+								a.iconBtn(c, "drop-site:"+key, iconClose, "移除源", 18, 11, th.TextMuted, func() {
 									a.dropSite(key)
 								})
 							})
@@ -452,7 +472,7 @@ func (a *App) viewSidebar(c *ui.Context, th *ui.Theme) {
 						})
 						item.Children(func() {
 							a.hoverAction(c, hovered, func() {
-								a.iconBtn(c, "drop-live:"+lv.URL, iconClose, "移除直播源", 24, 14, th.TextMuted, func() {
+								a.iconBtn(c, "drop-live:"+lv.URL, iconClose, "移除直播源", 18, 11, th.TextMuted, func() {
 									a.dropLive(lv.URL)
 								})
 							})
@@ -482,15 +502,21 @@ func (a *App) viewSidebar(c *ui.Context, th *ui.Theme) {
 
 func (a *App) viewTop(c *ui.Context, th *ui.Theme) {
 	ui.Row(c).Padding(12, pagePad).Gap(12).AlignItems(ui.Center).Children(func() {
-		if a.screen == screenDetail || a.screen == screenPlay {
-			if ui.Button(c, "返回").Clicked() {
-				a.back()
+		if a.screen == screenDetail {
+			// The title is the page's own, in large: the bar only takes
+			// you back, as a disc over the backdrop.
+			glassButton(c, th, "detail-back", iconBack, "返回", 36, th.Text, a.back)
+		} else {
+			if a.screen == screenPlay {
+				if ui.Button(c, "返回").Clicked() {
+					a.back()
+				}
 			}
+			ui.Column(c).Gap(1).Shrink(1).Children(func() {
+				ui.Text(c, a.crumb()).FontSize(fontCaption).TextColor(th.TextMuted).SingleLine()
+				ui.Text(c, a.headline()).FontSize(fontTitle).FontWeight(weightTitle).SingleLine()
+			})
 		}
-		ui.Column(c).Gap(1).Shrink(1).Children(func() {
-			ui.Text(c, a.crumb()).FontSize(fontCaption).TextColor(th.TextMuted).SingleLine()
-			ui.Text(c, a.headline()).FontSize(fontTitle).Bold().SingleLine()
-		})
 		ui.Column(c).Grow(1)
 		if a.screen == screenBrowse || a.screen == screenHome || a.screen == screenLive {
 			ph := "搜索片名，回车"
@@ -845,18 +871,30 @@ func (a *App) removeBadge(c *ui.Context, th *ui.Theme, key, label string, remove
 
 func (a *App) cover(c *ui.Context, th *ui.Theme, pic, title string, w, h float32, click func(), zoom bool) {
 	pic = model.ResolveURL("", pic)
-	if bmp := a.poster(pic); bmp != nil {
-		img := ui.Image(c, bmp).Width(w).Height(h).Fit(ui.Cover).Transition(ui.ElementTransition{Duration: 180 * time.Millisecond})
-		if zoom {
-			img.Scale(1.03, 1.03)
-		}
-		if click != nil {
-			img.OnClick(click)
-		}
-		return
-	}
 	if pic != "" && !a.failed[pic] {
-		ui.Box(c).Width(w).Height(h).Background(th.SurfaceHover)
+		// One element while loading and after, so the poster fades in over
+		// its placeholder once it arrives instead of popping in.
+		bmp := a.poster(pic)
+		box := ui.Box(c.Key("cover:" + pic)).Width(w).Height(h)
+		in := fadeIn(box, bmp != nil)
+		if in < 1 {
+			box.Background(th.SurfaceHover)
+		}
+		box.Children(func() {
+			if bmp == nil || in <= 0 {
+				return
+			}
+			img := ui.Image(c, bmp).Width(w).Height(h).Fit(ui.Cover).Transition(ui.ElementTransition{Duration: 180 * time.Millisecond})
+			if in < 1 {
+				img.Opacity(in)
+			}
+			if zoom {
+				img.Scale(1.03, 1.03)
+			}
+			if click != nil {
+				img.OnClick(click)
+			}
+		})
 		return
 	}
 	ui.Column(c).Width(w).Height(h).Center().Gradient(th.Surface, th.SurfaceHover, 160).Children(func() {
@@ -917,65 +955,67 @@ func (a *App) viewDetail(c *ui.Context, th *ui.Theme) {
 	}
 	ui.Scroll(c).Grow(1).Children(func() {
 		ui.Column(c).Gap(22).Children(func() {
-			ui.Row(c).Gap(22).AlignItems(ui.Start).Children(func() {
+			ui.Row(c).Gap(32).AlignItems(ui.Start).Padding(8, 0, 6, 0).Children(func() {
 				pic := ""
 				if d != nil {
 					pic = d.Pic
 				}
 				_, winH := c.Size()
 				a.portrait(c, th, pic, title, portraitHeight(winH))
-				ui.Column(c).Grow(1).Gap(10).Padding(8, 0, 0, 0).Children(func() {
-					ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
-						ui.Text(c, title).FontSize(fontHero).Bold().Shrink(1)
-						if d != nil && a.linePick >= 0 && a.linePick < len(d.Lines) && len(d.Lines[a.linePick].Episodes) > 0 {
+				ui.Column(c).Grow(1).Shrink(1).Gap(14).Padding(6, 0, 0, 0).Children(func() {
+					ui.Text(c, title).FontSize(34).FontWeight(weightHeavy).Wrap()
+					if d == nil {
+						ui.Column(c).Gap(10).Children(func() {
+							ui.Box(c).Width(240).Height(12).Radius(6).Background(th.SurfaceHover)
+							ui.Box(c).Width(180).Height(12).Radius(6).Background(th.SurfaceHover)
+							ui.Box(c).Width(208).Height(12).Radius(6).Background(th.SurfaceHover)
+						})
+						return
+					}
+					ui.Row(c).Gap(6).Wrap().Children(func() {
+						if d.Remarks != "" {
+							metaPill(c, th, d.Remarks, true)
+						}
+						for _, m := range []string{d.Year, d.Area, d.TypeName} {
+							if strings.TrimSpace(m) != "" {
+								metaPill(c, th, strings.TrimSpace(m), false)
+							}
+						}
+					})
+					who := joinMeta(prefix("导演 ", d.Director), prefix("主演 ", d.Actors))
+					if who != "" {
+						ui.Text(c, who).FontSize(fontCaption).TextColor(th.TextMuted).Wrap()
+					}
+					if d.Content != "" {
+						ui.Text(c, d.Content).FontSize(fontBody).LineHeight(1.6).TextColor(th.Text.Alpha(0.78)).MaxWidth(760).MaxLines(5).Wrap()
+					}
+					ui.Row(c).Gap(12).AlignItems(ui.Center).Padding(8, 0, 0, 0).Children(func() {
+						if a.linePick >= 0 && a.linePick < len(d.Lines) && len(d.Lines[a.linePick].Episodes) > 0 {
 							ep := d.Lines[a.linePick].Episodes[0]
 							ln := d.Lines[a.linePick].Name
 							label := "播放"
 							if ep.Name != "" {
 								label = "播放 " + ep.Name
 							}
-							if ui.PrimaryButton(c.Key("detail-play"), label).Clicked() {
+							if primaryPill(c, th, "detail-play", iconPlay, label).Clicked() {
 								a.playEpisode(ln, ep)
 							}
 						}
-						if d != nil {
-							on := a.lib != nil && a.lib.hasFav(mediaKey(a.siteKey, d.ID))
-							heart := iconHeart
-							tip := "收藏"
-							if on {
-								tip = "取消收藏"
+						on := a.lib != nil && a.lib.hasFav(mediaKey(a.siteKey, d.ID))
+						tip, fg := "收藏", th.Text
+						if on {
+							tip, fg = "取消收藏", th.Accent
+						}
+						glassButton(c, th, "fav-detail", iconHeart, tip, 44, fg, func() {
+							if a.lib == nil {
+								return
 							}
-							a.iconBtn(c, "fav-detail", heart, tip, 48, 26, th.Text, func() {
-								if a.lib == nil {
-									return
-								}
-								a.lib.toggleFav(favItem{
-									Key: mediaKey(a.siteKey, d.ID), SiteKey: a.siteKey, VodID: d.ID,
-									Title: d.Title, Pic: d.Pic, Remarks: d.Remarks, Year: d.Year,
-								})
+							a.lib.toggleFav(favItem{
+								Key: mediaKey(a.siteKey, d.ID), SiteKey: a.siteKey, VodID: d.ID,
+								Title: d.Title, Pic: d.Pic, Remarks: d.Remarks, Year: d.Year,
 							})
-						}
-					})
-					if d == nil {
-						ui.Column(c).Gap(8).Children(func() {
-							ui.Box(c).Width(240).Height(12).Radius(4).Background(th.SurfaceHover)
-							ui.Box(c).Width(180).Height(12).Radius(4).Background(th.SurfaceHover)
-							ui.Box(c).Width(208).Height(12).Radius(4).Background(th.SurfaceHover)
 						})
-					}
-					if d != nil {
-						meta := joinMeta(d.TypeName, d.Year, d.Area, d.Remarks)
-						if meta != "" {
-							ui.Text(c, meta).FontSize(fontCaption).TextColor(th.TextMuted).Wrap()
-						}
-						who := joinMeta(prefix("导演 ", d.Director), prefix("主演 ", d.Actors))
-						if who != "" {
-							ui.Text(c, who).FontSize(fontCaption).TextColor(th.TextMuted).Wrap()
-						}
-						if d.Content != "" {
-							ui.Text(c, d.Content).FontSize(fontBody).TextColor(th.TextMuted).Wrap()
-						}
-					}
+					})
 				})
 			})
 			if d == nil {
@@ -1044,8 +1084,8 @@ func (a *App) viewDetail(c *ui.Context, th *ui.Theme) {
 
 func (a *App) portrait(c *ui.Context, th *ui.Theme, pic, title string, h float32) {
 	w := h * 2 / 3
-	frame := ui.Column(c).Width(w).Height(h).Radius(8).Clip().Background(th.Surface).
-		Shadow(0, 12, 28, 0, ui.RGBA(0, 0, 0, 0.28))
+	frame := ui.Column(c).Width(w).Height(h).Radius(14).Clip().Background(th.Surface).
+		Border(1, th.Border).Shadow(0, 24, 48, -12, ui.RGBA(0, 0, 0, 0.55))
 	frame.Children(func() {
 		a.cover(c, th, pic, title, w, h, nil, false)
 	})
@@ -1223,11 +1263,24 @@ func (a *App) viewIndex(c *ui.Context, th *ui.Theme) {
 	})
 }
 
+// choice is a chip that picks one of several (a source, a line, an
+// episode). The chosen one is tinted and outlined with the accent rather
+// than filled, leaving the filled look to the screen's primary action.
 func (a *App) choice(c *ui.Context, th *ui.Theme, key, label string, on bool, click func()) {
-	p := ui.Column(c.Key(key)).Padding(10, 12).Radius(8).OnClick(click).Cursor(ui.CursorPointer)
+	p := ui.Column(c.Key(key)).Padding(9, 14).Radius(10).OnClick(click).Cursor(ui.CursorPointer)
 	bg, fg := selectionColors(th, on, p.Hovered())
-	p.Background(bg).Transition(ui.ElementTransition{Duration: 150 * time.Millisecond}).Children(func() {
-		ui.Text(c, label).FontSize(fontBody).TextColor(fg).SingleLine()
+	edge := th.Border
+	if on {
+		edge = th.Accent.Alpha(0.55)
+	}
+	p.Background(p.AnimateColor("bg", bg, colorEase)).Border(1, p.AnimateColor("edge", edge, colorEase))
+	pressPose(p, 0.96)
+	p.Children(func() {
+		w := 400
+		if on {
+			w = weightStrong
+		}
+		ui.Text(c, label).FontSize(fontBody).FontWeight(w).TextColor(fg).SingleLine()
 	})
 }
 

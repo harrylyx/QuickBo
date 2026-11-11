@@ -12,91 +12,139 @@ const (
 	fontHero     = 28
 )
 
+// Weights for the type scale: titles carry the hierarchy with weight more
+// than size, as Apple's apps do; body text stays regular.
+const (
+	weightHeavy  = 800 // hero titles
+	weightTitle  = 700 // section and page titles
+	weightStrong = 600 // card titles, chips, buttons
+)
+
+// selectionColors is a choice's fill and text. The chosen one is tinted
+// with the accent instead of filled with it, so the one filled control on a
+// screen stays its primary action (播放).
 func selectionColors(th *ui.Theme, on, hovered bool) (bg, fg ui.Color) {
-	bg, fg = th.SurfaceHover, th.Text
 	if on {
-		return th.Accent, th.AccentText
+		return th.Accent.Alpha(0.2), accentInk(th)
 	}
+	bg, fg = th.Selection, th.Text
 	if hovered {
-		bg = th.SurfacePressed
+		bg = th.SurfaceHover
 	}
 	return bg, fg
 }
 
-func cardShadow(light, hot bool) (y, blur float32, ink ui.Color) {
-	alpha := float32(0.12)
-	if hot {
-		alpha = 0.30
+// accentInk is the accent as text on a tinted fill: lighter in the dark,
+// darker in the light, so it reads at 4.5:1 or better.
+func accentInk(th *ui.Theme) ui.Color {
+	if th.Dark {
+		return th.Accent.MixOklab(ui.Hex("#ffffff"), 0.45)
 	}
-	if light {
-		alpha *= 0.45
-	}
-	if hot {
-		return 10, 24, ui.RGBA(0, 0, 0, alpha)
-	}
-	return 2, 6, ui.RGBA(0, 0, 0, alpha)
+	return th.Accent.MixOklab(ui.Hex("#000000"), 0.2)
 }
 
-// Themes follow mygo's theme object. Dark mode is an OLED cinema field:
-// near-black surfaces, neutral selection, and a single play-red accent
-// reserved for the primary action, the active mark, and progress.
-// Light mode keeps the same accent, darkened so white label text stays
-// above 4.5:1.
+// faint is the weakest text: placeholders, separators, counts.
+func faint(th *ui.Theme) ui.Color {
+	if th.Dark {
+		return ui.RGBA(235, 235, 245, 0.32)
+	}
+	return ui.RGBA(60, 60, 67, 0.34)
+}
+
+func cardShadow(light, hot bool) (y, blur float32, ink ui.Color) {
+	alpha := float32(0.28)
+	if hot {
+		alpha = 0.5
+	}
+	if light {
+		alpha *= 0.4
+	}
+	if hot {
+		return 14, 28, ui.RGBA(0, 0, 0, alpha)
+	}
+	return 6, 16, ui.RGBA(0, 0, 0, alpha)
+}
+
+// accentOf sets the theme's accent from one color, deriving hover and press
+// in Oklab so they keep its hue: darker in the light, lighter on hover in
+// the dark.
+func accentOf(t *ui.Theme, accent ui.Color) {
+	black, white := ui.Hex("#000000"), ui.Hex("#ffffff")
+	t.Accent, t.AccentText = accent, white
+	t.AccentHover, t.AccentPressed = accent.MixOklab(black, 0.1), accent.MixOklab(black, 0.2)
+	if t.Dark {
+		t.AccentHover, t.AccentPressed = accent.MixOklab(white, 0.12), accent.MixOklab(black, 0.15)
+	}
+	t.InactiveAccent = accent
+	t.Focus = accent.Alpha(0.9)
+}
+
+// Themes follow mygo's theme object. Dark mode is a cinema: a near-black
+// field, translucent whites for everything layered on it (so it sits as
+// well on a blurred poster as on the page), and one rose accent for the
+// primary action, the chosen item and progress.
 func cinemaDark() *ui.Theme {
 	t := *ui.DarkTheme()
-	t.Background = ui.Hex("#0A0A0A")
-	t.Surface = ui.Hex("#141414")
-	t.SurfaceHover = ui.Hex("#1C1C1C")
-	t.SurfacePressed = ui.Hex("#262626")
-	t.Border = ui.RGBA(255, 255, 255, 0.10)
-	t.Text = ui.Hex("#F5F5F5")
-	t.TextMuted = ui.Hex("#A1A1AA")
-	t.Accent = ui.Hex("#E11D48")
-	t.AccentHover = ui.Hex("#BE123C")
-	t.AccentPressed = ui.Hex("#9F1239")
-	t.AccentText = ui.Hex("#FFFFFF")
-	t.InactiveAccent = t.Accent
-	t.Danger = ui.Hex("#F87171")
-	t.Warning = ui.Hex("#FBBF24")
-	t.Success = ui.Hex("#34D399")
-	t.Selection = ui.RGBA(255, 255, 255, 0.08)
-	t.Focus = ui.RGBA(225, 29, 72, 0.90)
+	t.Background = ui.Hex("#0F0F12")
+	t.Surface = ui.Hex("#18181C")
+	t.SurfaceHover = ui.RGBA(255, 255, 255, 0.1)
+	t.SurfacePressed = ui.RGBA(255, 255, 255, 0.14)
+	t.Border = ui.RGBA(255, 255, 255, 0.08)
+	t.Text = ui.Hex("#F5F5F7")
+	t.TextMuted = ui.RGBA(235, 235, 245, 0.6)
+	accentOf(&t, ui.Oklch(0.64, 0.21, 16))
+	t.Danger = ui.Oklch(0.7, 0.17, 25)
+	t.Warning = ui.Oklch(0.82, 0.15, 80)
+	t.Success = ui.Oklch(0.78, 0.15, 160)
+	t.Selection = ui.RGBA(255, 255, 255, 0.06)
 	t.FocusRingWidth = 2
 	t.FocusRingOffset = 2
-	t.Radius = 8
+	t.Radius = 10
 	t.Spacing = 4
 	t.FontSize = fontBody
-	t.Inverse = ui.Hex("#F5F5F5")
-	t.InverseText = ui.Hex("#0A0A0A")
+	t.Inverse = ui.Hex("#F5F5F7")
+	t.InverseText = ui.Hex("#0F0F12")
 	return &t
 }
 
+// Light mode keeps the hue, its accent darkened so white text on it stays
+// above 4.5:1.
 func cinemaLight() *ui.Theme {
 	t := *ui.LightTheme()
-	t.Background = ui.Hex("#F4F4F5")
-	t.Surface = ui.Hex("#FFFFFF")
-	t.SurfaceHover = ui.Hex("#E7E7EA")
-	t.SurfacePressed = ui.Hex("#DCDCE1")
-	t.Border = ui.RGBA(24, 24, 27, 0.10)
-	t.Text = ui.Hex("#18181B")
-	t.TextMuted = ui.Hex("#52525B")
-	t.Accent = ui.Hex("#BE123C")
-	t.AccentHover = ui.Hex("#9F1239")
-	t.AccentPressed = ui.Hex("#881337")
-	t.AccentText = ui.Hex("#FFFFFF")
-	t.InactiveAccent = t.Accent
-	t.Danger = ui.Hex("#B42318")
-	t.Warning = ui.Hex("#B45309")
-	t.Success = ui.Hex("#047857")
-	t.Selection = ui.RGBA(24, 24, 27, 0.06)
-	t.Focus = ui.RGBA(190, 18, 60, 0.85)
+	t.Background = ui.Hex("#FFFFFF")
+	t.Surface = ui.Hex("#F5F5F7")
+	t.SurfaceHover = ui.RGBA(0, 0, 0, 0.06)
+	t.SurfacePressed = ui.RGBA(0, 0, 0, 0.1)
+	t.Border = ui.RGBA(0, 0, 0, 0.08)
+	t.Text = ui.Hex("#1D1D1F")
+	t.TextMuted = ui.RGBA(60, 60, 67, 0.64)
+	accentOf(&t, ui.Oklch(0.56, 0.21, 16))
+	t.Danger = ui.Oklch(0.55, 0.2, 27)
+	t.Warning = ui.Oklch(0.6, 0.14, 65)
+	t.Success = ui.Oklch(0.55, 0.13, 160)
+	t.Selection = ui.RGBA(0, 0, 0, 0.04)
 	t.FocusRingWidth = 2
 	t.FocusRingOffset = 2
-	t.Radius = 8
+	t.Radius = 10
 	t.Spacing = 4
 	t.FontSize = fontBody
-	t.Inverse = ui.Hex("#18181B")
-	t.InverseText = ui.Hex("#FAFAFA")
+	t.Inverse = ui.Hex("#1D1D1F")
+	t.InverseText = ui.Hex("#FFFFFF")
+	return &t
+}
+
+// sidebarTheme is the theme inside the sidebar. mygo tints sidebar icons
+// with the accent, as AppKit does; the app's rose made every icon shout,
+// so the sidebar gets a quiet, desaturated one of the same hue, and its
+// list no background of its own (the sidebar column's shows).
+func sidebarTheme(th *ui.Theme, bg ui.Color) *ui.Theme {
+	t := *th
+	if t.Dark {
+		accentOf(&t, ui.Oklch(0.58, 0.08, 16))
+	} else {
+		accentOf(&t, ui.Oklch(0.5, 0.09, 16))
+	}
+	t.Surface = bg
 	return &t
 }
 
@@ -111,9 +159,9 @@ func (a *App) useTheme(c *ui.Context) *ui.Theme {
 
 func sidebarInk(light bool) ui.Color {
 	if light {
-		return ui.Hex("#FFFFFF")
+		return ui.Hex("#F5F5F7")
 	}
-	return ui.Hex("#050505")
+	return ui.Hex("#16161A")
 }
 
 func stageInk(light bool) ui.Color {

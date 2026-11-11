@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"image"
+	"image/color"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -138,13 +139,17 @@ type App struct {
 	cfgCache   map[string]configEntry
 	// videoBM shows the frames of an embedded player (player.VideoSource);
 	// videoShown is set once it holds a frame of the current session.
-	videoBM        *ui.Bitmap
-	videoShown     bool
-	spaceDownAt    time.Time
-	spaceBoosted   bool
-	bufferingSince time.Time
-	keepScreen     bool
-	lib            *library
+	// heroIdx is the home banner's title, heroPrev the one it crossfades
+	// from, since heroAt.
+	heroIdx, heroPrev int
+	heroAt            time.Time
+	videoBM           *ui.Bitmap
+	videoShown        bool
+	spaceDownAt       time.Time
+	spaceBoosted      bool
+	bufferingSince    time.Time
+	keepScreen        bool
+	lib               *library
 
 	// Subscription and source management.
 	subSort        string                // 订阅排序键：name/ref/enabled/count
@@ -152,9 +157,9 @@ type App struct {
 	subSel         map[string]bool       // 批量选中的订阅 ref
 	subBatch       bool                  // 订阅批量管理模式
 	srcFilter      string                // 片源管理搜索关键字
-	srcSort        string                // 片源排序键：名称/延迟/类型/健康度/订阅
-	srcHealth      string                // 片源健康度筛选：全部/仅可用/仅失败/仅未测/较慢
-	srcView        string                // 片源分组视图：列表/按订阅/按类型/按健康度
+	srcSort        string                // 片源排序键：srcSort* 常量
+	srcHealth      string                // 片源健康度筛选：srcShow* 常量
+	srcView        string                // 片源分组视图：srcGroup* 常量
 	srcSel         map[string]bool       // 批量选中的片源 key
 	srcBatch       bool                  // 片源批量管理模式
 	disabled       map[string]bool       // 停用的片源（sourceHideID），保留在管理列表但不下发
@@ -176,6 +181,7 @@ type App struct {
 	chState  ui.ListState
 
 	posters       map[string]*ui.Bitmap
+	art           map[string]artExtras
 	fetching      map[string]bool
 	failed        map[string]bool
 	hidden        map[string]bool
@@ -225,6 +231,7 @@ func New() *App {
 		lib:           loadLibrary(filepath.Dir(settingsPath())),
 		selected:      -1,
 		posters:       map[string]*ui.Bitmap{},
+		art:           map[string]artExtras{},
 		fetching:      map[string]bool{},
 		failed:        map[string]bool{},
 		hidden:        map[string]bool{},
@@ -859,11 +866,16 @@ func (a *App) poster(url string) *ui.Bitmap {
 		if err == nil {
 			img, _, err = image.Decode(bytes.NewReader(body))
 		}
+		var blurred *image.RGBA
+		var tint color.RGBA
+		if img != nil {
+			blurred, tint = blurImage(img)
+		}
 		raw := body
 		win.Update(func() {
 			delete(a.fetching, url)
 			if img != nil {
-				a.remember(url, ui.NewBitmap(img))
+				a.rememberImage(url, img, blurred, tint)
 				return
 			}
 			if err == nil {
@@ -894,6 +906,7 @@ func (a *App) imageHeaders() map[string]string {
 func (a *App) remember(url string, bmp *ui.Bitmap) {
 	if len(a.posters) > 200 {
 		a.posters = map[string]*ui.Bitmap{}
+		a.art = map[string]artExtras{}
 	}
 	a.posters[url] = bmp
 }

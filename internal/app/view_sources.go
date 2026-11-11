@@ -11,37 +11,56 @@ import (
 	"github.com/harrylyx/QuickBo/internal/source"
 )
 
+// The source list's sort, filter and grouping. Each option says what it
+// does, as the menus show nothing else ("名称" alone did not say it sorts).
+const (
+	srcSortName    = "按名称排序"
+	srcSortDelay   = "按延迟排序"
+	srcSortKind    = "按类型排序"
+	srcSortHealth  = "按健康度排序"
+	srcSortSub     = "按订阅排序"
+	srcShowAll     = "显示全部"
+	srcShowOK      = "只看可用"
+	srcShowFailed  = "只看失败"
+	srcShowUntest  = "只看未测速"
+	srcShowSlow    = "只看较慢（≥1 秒）"
+	srcGroupNone   = "不分组"
+	srcGroupSub    = "按订阅分组"
+	srcGroupKind   = "按类型分组"
+	srcGroupHealth = "按健康度分组"
+)
+
 var (
-	srcSortOptions   = []string{"名称", "延迟", "类型", "健康度", "订阅"}
-	srcHealthOptions = []string{"全部", "仅可用", "仅失败", "仅未测", "较慢"}
-	srcViewOptions   = []string{"列表", "按订阅", "按类型", "按健康度"}
+	srcSortOptions   = []string{srcSortName, srcSortDelay, srcSortKind, srcSortHealth, srcSortSub}
+	srcHealthOptions = []string{srcShowAll, srcShowOK, srcShowFailed, srcShowUntest, srcShowSlow}
+	srcViewOptions   = []string{srcGroupNone, srcGroupSub, srcGroupKind, srcGroupHealth}
 )
 
 func (a *App) viewSources(c *ui.Context, th *ui.Theme) {
 	ui.Column(c).Grow(1).Gap(16).Children(func() {
 		sortSel := a.srcSort
 		if sortSel == "" {
-			sortSel = "名称"
+			sortSel = srcSortName
 		}
 		healthSel := a.srcHealth
 		if healthSel == "" {
-			healthSel = "全部"
+			healthSel = srcShowAll
 		}
 		viewSel := a.srcView
 		if viewSel == "" {
-			viewSel = "列表"
+			viewSel = srcGroupNone
 		}
 		batchLabel := "批量管理"
 		if a.srcBatch {
 			batchLabel = "完成"
 		}
-		ui.Row(c).AlignItems(ui.Center).Gap(12).Children(func() {
-			ui.Text(c, "测连通、延迟和服务器所在地，并按健康度排序。停用的源仍在列表里，可随时启用。").TextColor(th.TextMuted).Shrink(1).Wrap()
+		ui.Text(c, "测连通、延迟和服务器所在地，并按健康度排序。停用的源仍在列表里，可随时启用。").TextColor(th.TextMuted).Wrap()
+		ui.Row(c).AlignItems(ui.Center).Gap(10).Wrap().Children(func() {
+			ui.SearchField(c, &a.srcFilter).Placeholder("搜索片源名称或地址").Width(200).Label("搜索片源")
+			ui.Select(c, &sortSel, srcSortOptions).Label("排序方式").Tooltip("排序方式：列表按什么先后排列").Width(140)
+			ui.Select(c, &healthSel, srcHealthOptions).Label("按状态筛选").Tooltip("按状态筛选：只显示可用、失败、未测速或较慢的源").Width(168)
+			ui.Select(c, &viewSel, srcViewOptions).Label("分组方式").Tooltip("分组方式：把列表按订阅、类型或健康度分成几组").Width(140)
 			ui.Column(c).Grow(1)
-			ui.SearchField(c, &a.srcFilter).Placeholder("搜索片源").Width(160).Label("搜索片源")
-			ui.Select(c, &sortSel, srcSortOptions).Label("排序").Width(108)
-			ui.Select(c, &healthSel, srcHealthOptions).Label("筛选").Width(108)
-			ui.Select(c, &viewSel, srcViewOptions).Label("分组").Width(120)
 			if ui.Button(c, "全部测速").Disabled(a.probingActive).Clicked() {
 				a.probeAllSources()
 			}
@@ -314,13 +333,13 @@ func (a *App) visibleSources() []source.Source {
 func (a *App) passesHealth(key string) bool {
 	st := a.stats[key]
 	switch a.srcHealth {
-	case "仅可用":
+	case srcShowOK:
 		return st.Delay > 0
-	case "仅失败":
+	case srcShowFailed:
 		return st.Err != "" || st.Delay < 0
-	case "仅未测":
+	case srcShowUntest:
 		return st.Delay == 0 && st.Err == ""
-	case "较慢":
+	case srcShowSlow:
 		return st.Delay >= 1000
 	default:
 		return true
@@ -339,17 +358,17 @@ func (a *App) sortedSources() []source.Source {
 		mi, mj := out[i].Meta(), out[j].Meta()
 		sti, stj := a.stats[mi.Key], a.stats[mj.Key]
 		switch a.srcSort {
-		case "延迟":
+		case srcSortDelay:
 			return delaySortKey(sti) < delaySortKey(stj)
-		case "类型":
+		case srcSortKind:
 			if ki, kj := config.KindLabel(mi.Kind), config.KindLabel(mj.Kind); ki != kj {
 				return ki < kj
 			}
-		case "健康度":
+		case srcSortHealth:
 			if ri, rj := healthRank(sti), healthRank(stj); ri != rj {
 				return ri < rj
 			}
-		case "订阅":
+		case srcSortSub:
 			if gi, gj := a.groupName(mi.API, mi.Key, ""), a.groupName(mj.API, mj.Key, ""); gi != gj {
 				return gi < gj
 			}
@@ -419,7 +438,7 @@ type sourceGroup struct {
 }
 
 func (a *App) groupSources(sites []source.Source) []sourceGroup {
-	if a.srcView == "列表" {
+	if a.srcView == srcGroupNone {
 		if len(sites) == 0 {
 			return nil
 		}
@@ -442,14 +461,14 @@ func (a *App) groupSources(sites []source.Source) []sourceGroup {
 func (a *App) sourceGroupKey(s source.Source) string {
 	m := s.Meta()
 	switch a.srcView {
-	case "按订阅":
+	case srcGroupSub:
 		if g := a.groupName(m.API, m.Key, ""); g != "" {
 			return g
 		}
 		return "其他"
-	case "按类型":
+	case srcGroupKind:
 		return config.KindLabel(m.Kind)
-	case "按健康度":
+	case srcGroupHealth:
 		return healthTier(a.stats[m.Key])
 	default:
 		return ""
