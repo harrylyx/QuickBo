@@ -165,17 +165,26 @@ func (a *App) fetchEntries(ctx context.Context, refs []string, depth int, seen *
 }
 
 func (a *App) keepWorking(ctx context.Context, full *source.Catalog) {
+	a.keepWorkingMode(ctx, full, false)
+}
+
+// keepWorkingMode runs the collection pass. In silent mode the home restored
+// from cache stays on screen and no loading state is shown: each source's
+// fresh ballots replace its cached ones as they arrive.
+func (a *App) keepWorkingMode(ctx context.Context, full *source.Catalog, silent bool) {
 	sites := append([]source.Source(nil), full.Sites...)
 	lives := append([]*source.LiveEntry(nil), full.Lives...)
 	total := len(sites) + len(lives)
-	a.loading = true
-	a.loadNote = fmt.Sprintf("正在检查 %d 个源", total)
-	if !a.keepScreen {
-		a.screen = screenHome
-		a.sideSel = "home"
-		a.lastSide = "home"
-		a.siteKey = ""
-		a.home = nil
+	if !silent {
+		a.loading = true
+		a.loadNote = fmt.Sprintf("正在检查 %d 个源", total)
+		if !a.keepScreen {
+			a.screen = screenHome
+			a.sideSel = "home"
+			a.lastSide = "home"
+			a.siteKey = ""
+			a.home = nil
+		}
 	}
 	skipped := map[string]bool{}
 	for id := range a.hidden {
@@ -185,9 +194,26 @@ func (a *App) keepWorking(ctx context.Context, full *source.Catalog) {
 		skipped[id] = true
 	}
 	ref := a.cfgRef
+	rules := cloneRules(a.activeRules())
+	// A silent refresh starts from the sources the cache restored, so the
+	// first probe result does not shrink the sidebar to a single source.
+	seedSite := make([]bool, len(sites))
+	seedLive := make([]bool, len(lives))
+	if silent && a.catalog != nil {
+		liveKept := map[string]bool{}
+		for _, lv := range a.catalog.Lives {
+			liveKept[lv.URL] = true
+		}
+		for i, s := range sites {
+			seedSite[i] = a.catalog.Find(s.Meta().Key) != nil
+		}
+		for i, lv := range lives {
+			seedLive[i] = liveKept[lv.URL]
+		}
+	}
 	go func() {
-		okSite := make([]bool, len(sites))
-		okLive := make([]bool, len(lives))
+		okSite := append([]bool(nil), seedSite...)
+		okLive := append([]bool(nil), seedLive...)
 		var mu sync.Mutex
 		var cacheMu sync.Mutex
 		var cacheSites []cacheSite
@@ -275,7 +301,7 @@ func (a *App) keepWorking(ctx context.Context, full *source.Catalog) {
 					var cats []cacheCat
 					if a.probeSite == nil {
 						bctx, bcancel := context.WithTimeout(ctx, 20*time.Second)
-						cats = collectSource(bctx, s)
+						cats = collectSourceWith(bctx, s, rules)
 						bcancel()
 						if len(hot) == 0 && len(cats) > 0 {
 							hot = hotCandidates(cats[0].Items)
@@ -536,21 +562,45 @@ func sourceSample(ctx context.Context, s source.Source) (model.Page, bool) {
 // the current homepage rules happen to match. New rule keywords can then be
 // applied to the cached facts without another network pass.
 func collectSource(ctx context.Context, s source.Source) []cacheCat {
+	return collectSourceWith(ctx, s, nil)
+}
+
+// wantedJunk reports whether a junk-genre category is named by a keyword the
+// user wrote into a rule on purpose; such categories are collected too.
+func wantedJunk(name string, rules []homeRule) bool {
+	for _, rule := range rules {
+		if ruleNamesJunk(rule) && keywordHit(name, rule.Keywords) {
+			return true
+		}
+	}
+	return false
+}
+
+// collectSourceWith is collectSource that also keeps the junk-genre categories
+// the given rules ask for by name. They do not count against cacheCatLimit.
+func collectSourceWith(ctx context.Context, s source.Source, rules []homeRule) []cacheCat {
 	cats, err := s.Categories(ctx)
 	if err != nil || len(cats) == 0 {
 		return nil
 	}
 	picks := make([]model.Category, 0, cacheCatLimit)
+	var extra []model.Category
 	for _, cat := range cats {
 		name := strings.TrimSpace(cat.Name)
-		if !usableTitle(name) || junkCategory(name) {
+		if !usableTitle(name) {
 			continue
 		}
-		picks = append(picks, cat)
-		if len(picks) >= cacheCatLimit {
-			break
+		if junkCategory(name) {
+			if wantedJunk(name, rules) {
+				extra = append(extra, cat)
+			}
+			continue
+		}
+		if len(picks) < cacheCatLimit {
+			picks = append(picks, cat)
 		}
 	}
+	picks = append(picks, extra...)
 	out := make([]cacheCat, len(picks))
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, 4)

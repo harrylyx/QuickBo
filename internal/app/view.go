@@ -79,6 +79,8 @@ func (a *App) View(c *ui.Context) {
 								a.viewSources(c, th)
 							case screenRules:
 								a.viewRules(c, th)
+							case screenMore:
+								a.viewMore(c, th)
 							case screenIndex:
 								a.viewIndex(c, th)
 							case screenUnsupported:
@@ -585,6 +587,8 @@ func (a *App) crumb() string {
 		return "片源"
 	case screenRules:
 		return "分类"
+	case screenMore:
+		return "首页"
 	case screenDetail:
 		return "详情"
 	case screenPlay:
@@ -615,6 +619,8 @@ func (a *App) headline() string {
 		return "片源"
 	case screenRules:
 		return "首页分类"
+	case screenMore:
+		return a.moreRow.Name
 	case screenDetail:
 		if a.detailTitle != "" {
 			return a.detailTitle

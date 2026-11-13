@@ -135,7 +135,7 @@ func TestDetailCanSortOffersByClarityOrDelay(t *testing.T) {
 	}
 	a.sortOffers()
 	tt := ui.NewTester(a.View, 1200, 800)
-	if !tt.HasText("4K") || !tt.HasText("其他") || !tt.HasText("慢源") || !tt.HasText("快源 · 40 ms") {
+	if !tt.HasText("4K") || !tt.HasText("清晰度未知") || !tt.HasText("慢源") || !tt.HasText("快源 · 40 ms") {
 		t.Fatalf("texts %q", tt.Texts())
 	}
 	if a.offers[0].SiteKey != "slow" {

@@ -91,7 +91,7 @@ func matchRules(name string, rules []homeRule) []string {
 		if rule.ID == "" || seen[rule.ID] || len(rule.Keywords) == 0 {
 			continue
 		}
-		if junk && !strings.HasPrefix(rule.ID, "custom-") {
+		if junk && !strings.HasPrefix(rule.ID, "custom-") && !ruleNamesJunk(rule) {
 			continue
 		}
 		if !keywordHit(name, rule.Keywords) {
@@ -101,6 +101,43 @@ func matchRules(name string, rules []homeRule) []string {
 		out = append(out, rule.ID)
 	}
 	return out
+}
+
+// ruleNamesJunk reports whether one of the rule's own keywords is a junk
+// genre word: the user wrote it on purpose, so the rule may match such
+// categories even when it is a built-in row.
+func ruleNamesJunk(rule homeRule) bool {
+	for _, word := range rule.Keywords {
+		if junkCategory(strings.TrimSpace(word)) {
+			return true
+		}
+	}
+	return false
+}
+
+// needsJunkCollect reports whether a rule names a junk genre (伦理, 短剧...)
+// that no cached category matches. Older collections skipped those genres, so
+// the cache has to be rebuilt once for the row to have anything to show.
+func (a *App) needsJunkCollect() bool {
+	if a.cfg == nil {
+		return false
+	}
+	for _, rule := range a.homeRules {
+		if !ruleNamesJunk(rule) {
+			continue
+		}
+		found := false
+		for _, b := range a.ballots {
+			if strings.TrimSpace(b.Cat) != "" && keywordHit(b.Cat, rule.Keywords) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return true
+		}
+	}
+	return false
 }
 
 func keywordHit(name string, words []string) bool {
@@ -302,9 +339,10 @@ func (a *App) saveRules() {
 	a.noteRuleSeq()
 	a.rulesDirty = false
 	a.saveSettings()
-	if len(a.ballots) == 0 {
-		// No cached facts to re-tally: collect fresh data so the new layout
-		// actually shows up on the homepage.
+	if len(a.ballots) == 0 || a.needsJunkCollect() {
+		// No cached facts to re-tally, or a rule names a junk genre the cache
+		// never collected: collect fresh data so the new layout actually
+		// shows up on the homepage.
 		a.recollect()
 	} else {
 		a.rebuildHome()

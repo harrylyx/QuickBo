@@ -71,9 +71,36 @@ func playlistSize(body []byte) (int, int, bool) {
 		}
 	}
 	if bestW == 0 && bestH == 0 {
+		if w, h := labelSize(body); h > 0 {
+			return w, h, true
+		}
 		return 0, 0, playlist(body, "")
 	}
 	return bestW, bestH, true
+}
+
+var heightLabel = regexp.MustCompile(`(?i)(?:NAME\s*=\s*"?|[/_\-.])(2160|1440|1080|720|576|540|480|360)\s*[pP]?(?:["/_\-.,\s]|$)`)
+
+// labelSize estimates a picture size for a master playlist that carries no
+// RESOLUTION: the variant NAME or its address often says 720p, 1080 and so
+// on. Only variant lines are read, and the 16:9 width is assumed.
+func labelSize(body []byte) (int, int) {
+	bestH := 0
+	for _, line := range strings.Split(string(body), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || (strings.HasPrefix(line, "#") && !strings.HasPrefix(strings.ToUpper(line), "#EXT-X-STREAM-INF")) {
+			continue
+		}
+		for _, m := range heightLabel.FindAllStringSubmatch(line, -1) {
+			if h, err := strconv.Atoi(m[1]); err == nil && h > bestH {
+				bestH = h
+			}
+		}
+	}
+	if bestH == 0 {
+		return 0, 0
+	}
+	return bestH * 16 / 9, bestH
 }
 
 func bytesContainsFold(b, sub []byte) bool {

@@ -503,7 +503,9 @@ func offerGroup(o playOffer) string {
 	if label := clarityLabel(o.Clarity); label != "" {
 		return label
 	}
-	return "其他"
+	// Playable, but its picture size could not be read (single-bitrate HLS
+	// segment lists and the like): say so rather than a vague "其他".
+	return "清晰度未知"
 }
 
 func (a *App) viewOffers(c *ui.Context, th *ui.Theme) {

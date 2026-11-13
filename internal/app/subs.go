@@ -342,7 +342,7 @@ func (a *App) LoadSubs(refs []string) {
 	a.loading = true
 	a.loadErr = ""
 	a.loadNote = fmt.Sprintf("正在读取 %d 份订阅", len(refs))
-	ctx, gen := a.beginLoad()
+	ctx, _ := a.beginLoad()
 	key := comboKey(refs)
 	subs := cloneSubs(a.subs)
 	go func() {
@@ -352,7 +352,9 @@ func (a *App) LoadSubs(refs []string) {
 		merged := mergeConfigs(cfgs)
 		groups := groupsFor(subs, cfgs)
 		a.post(func() {
-			if a.gen != gen {
+			// A newer load cancels ctx. Unrelated navigation bumps gen, and must
+			// not make a finished subscription load vanish.
+			if ctx.Err() != nil {
 				return
 			}
 			if len(merged.Sites) == 0 && len(merged.Lives) == 0 && len(merged.IndexEntries()) == 0 {

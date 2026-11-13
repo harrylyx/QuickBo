@@ -156,7 +156,8 @@ func (c *cacheData) ballots(allowed map[string]bool) []ballot {
 
 // restoreFromCache rebuilds the sidebar and the home screen with no network
 // requests. The catalog still comes from the freshly parsed subscription, so
-// playback and browsing use live source drivers.
+// playback and browsing use live source drivers. After restoring from cache,
+// it starts a background refresh to update the content.
 func (a *App) restoreFromCache(c *cacheData, full *source.Catalog) {
 	a.catalog = &source.Catalog{Parses: full.Parses, Index: full.Index}
 	for _, s := range full.Sites {
@@ -186,4 +187,9 @@ func (a *App) restoreFromCache(c *cacheData, full *source.Catalog) {
 		a.lastSide = "home"
 	}
 	a.doneLoad()
+	// Refresh in the background without blanking the restored home. Only in a
+	// real window: headless tests must not start network probes.
+	if a.win != nil {
+		a.keepWorkingMode(a.loadCtxOrBackground(), full, true)
+	}
 }

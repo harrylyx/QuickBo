@@ -210,10 +210,38 @@ func itemYear(raw string) int {
 	return 0
 }
 
+// railMinCovers is how many titles with a poster a row needs before titles
+// without one are dropped from it. Below that, coverless titles only fill the
+// row up to this count, after every title that has a poster.
+const railMinCovers = 6
+
 func laneFromCandidates(key, name string, keys []string, by map[string]*laneCandidate, limit int) (homeLane, map[string][]titleHit) {
+	var withPic, noPic []string
+	for _, id := range keys {
+		if strings.TrimSpace(by[id].item.Pic) != "" {
+			withPic = append(withPic, id)
+		} else {
+			noPic = append(noPic, id)
+		}
+	}
+	if len(withPic) > 0 {
+		if need := railMinCovers - len(withPic); need > 0 {
+			if need > len(noPic) {
+				need = len(noPic)
+			}
+			withPic = append(withPic, noPic[:need]...)
+		}
+		keys = withPic
+	}
 	if limit > 0 && len(keys) > limit {
 		keys = keys[:limit]
 	}
+	return buildLane(key, name, keys, by)
+}
+
+// buildLane turns ordered candidate keys into a lane plus the per-title
+// source hits, keeping every key as given.
+func buildLane(key, name string, keys []string, by map[string]*laneCandidate) (homeLane, map[string][]titleHit) {
 	lane := homeLane{Key: key, Name: name}
 	part := map[string][]titleHit{}
 	for _, id := range keys {
@@ -234,6 +262,12 @@ func votedLane(key, name string, ballots []ballot) (homeLane, map[string][]title
 	keys, by := groupBallots(ballots)
 	sort.SliceStable(keys, func(i, j int) bool {
 		ai, aj := by[keys[i]], by[keys[j]]
+		// 有封面的优先显示
+		hasPicI := strings.TrimSpace(ai.item.Pic) != ""
+		hasPicJ := strings.TrimSpace(aj.item.Pic) != ""
+		if hasPicI != hasPicJ {
+			return hasPicI
+		}
 		if len(ai.voters) != len(aj.voters) {
 			return len(ai.voters) > len(aj.voters)
 		}
@@ -250,6 +284,12 @@ func rankedLane(key, name string, ballots []ballot) (homeLane, map[string][]titl
 	keys, by := groupBallots(ballots)
 	sort.SliceStable(keys, func(i, j int) bool {
 		ai, aj := by[keys[i]], by[keys[j]]
+		// 有封面的优先显示
+		hasPicI := strings.TrimSpace(ai.item.Pic) != ""
+		hasPicJ := strings.TrimSpace(aj.item.Pic) != ""
+		if hasPicI != hasPicJ {
+			return hasPicI
+		}
 		if len(ai.voters) != len(aj.voters) {
 			return len(ai.voters) > len(aj.voters)
 		}
@@ -454,13 +494,15 @@ func (a *App) openTitle(key string) {
 		parses = a.cfg.Parses
 	}
 	gen := a.bump()
+	a.offerGen++
+	og := a.offerGen
 	// Paint the best source's detail at once; the full scan (detail + speed
 	// measurement of every offering source) keeps running in the background and
 	// may later swap in a better source.
 	if src := srcs[a.offers[0].SiteKey]; src != nil {
 		a.fetchOfferDetail(src, a.offers[0].ItemID, hits[0].Title, hits[0].Pic, gen)
 	}
-	go a.loadOffers(gen, offers, srcs, parses)
+	go a.loadOffers(og, offers, srcs, parses)
 }
 
 // fetchOfferDetail resolves a single source's detail immediately so the
@@ -498,10 +540,13 @@ func (a *App) hitsFor(key string) []titleHit {
 			return hits
 		}
 	}
+	if hits := a.moreLookup[key]; len(hits) > 0 {
+		return hits
+	}
 	return a.lookup[key]
 }
 
-func (a *App) loadOffers(gen int, offers []playOffer, srcs map[string]source.Source, parses []config.ParseItem) {
+func (a *App) loadOffers(og int, offers []playOffer, srcs map[string]source.Source, parses []config.ParseItem) {
 	type result struct {
 		detail   *model.Detail
 		err      string
@@ -529,7 +574,7 @@ func (a *App) loadOffers(gen int, offers []playOffer, srcs map[string]source.Sou
 			defer func() {
 				r := out[i]
 				a.post(func() {
-					if a.gen != gen {
+					if a.offerGen != og {
 						return
 					}
 					for k := range a.offers {
@@ -547,7 +592,7 @@ func (a *App) loadOffers(gen int, offers []playOffer, srcs map[string]source.Sou
 							a.offers[k].Err = r.err
 						}
 						a.offers[k].Unplayable, a.offers[k].Reason = r.unplayable, r.reason
-						if r.unplayable && k == a.offerPick {
+						if r.unplayable && k == a.offerPick && a.screen != screenPlay {
 							// Leave a source that turned out not to play.
 							a.pickPlayable()
 						}
@@ -587,7 +632,7 @@ func (a *App) loadOffers(gen int, offers []playOffer, srcs map[string]source.Sou
 	}
 	wg.Wait()
 	a.post(func() {
-		if a.gen != gen {
+		if a.offerGen != og {
 			return
 		}
 		picked := ""
@@ -614,6 +659,18 @@ func (a *App) loadOffers(gen int, offers []playOffer, srcs map[string]source.Sou
 		}
 		a.sortOffers()
 		a.detailLoading = false
+		if a.screen == screenPlay {
+			// An episode is playing from the current source: keep it, and only
+			// refresh the source list. Re-point the pick at the same source so
+			// the detail and the playing line stay matched.
+			for i, o := range a.offers {
+				if o.SiteKey == picked {
+					a.offerPick = i
+					break
+				}
+			}
+			return
+		}
 		a.offerPick = 0
 		for i, o := range a.offers {
 			if o.SiteKey == picked && !o.Unplayable {

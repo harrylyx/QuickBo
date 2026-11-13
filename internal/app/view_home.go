@@ -17,6 +17,11 @@ func (a *App) viewHome(c *ui.Context, th *ui.Theme) {
 	}
 	ui.Scroll(c).Grow(1).TrackScroll(&a.browseScroll).Children(func() {
 		ui.Column(c).Padding(20, pagePad, 28, pagePad).Gap(32).Children(func() {
+			// A reload keeps the old rows on screen until sources report in, so
+			// say it at the top where it can be seen, not only below the rows.
+			if a.loading && !searching && len(lanes) > 0 {
+				a.loadingRow(c, th, a.loadNote)
+			}
 			if !searching {
 				a.homeHero(c, th)
 			}
@@ -72,20 +77,32 @@ func (a *App) homeRail(c *ui.Context, th *ui.Theme, lane homeLane) {
 			ui.Column(c).Grow(1)
 			// Rows are keyed by homepage rule; only a row named after a
 			// source has a list to open.
-			if a.catalog != nil && a.catalog.Find(lane.Key) != nil {
+			if a.canMore(lane) {
 				link := ui.Row(c.Key("all:" + lane.Key)).Gap(4).AlignItems(ui.Center).
-					OnClick(func() { a.selectSite(lane.Key) }).Cursor(ui.CursorPointer).
-					Tooltip("查看全部分类").Label("全部")
+					OnClick(func() { a.openMore(lane) }).Cursor(ui.CursorPointer).
+					Tooltip("查看更多").Label("查看更多")
 				fg := th.TextMuted
 				if link.Hovered() {
 					fg = th.Text
 				}
 				link.Transition(ui.ElementTransition{Duration: 150 * time.Millisecond}).Children(func() {
-					ui.Text(c, "全部").FontSize(fontCaption).TextColor(fg).SingleLine()
+					ui.Text(c, "查看更多").FontSize(fontCaption).TextColor(fg).SingleLine()
 					ui.Icon(c, iconChevronRight).Size(12, 12).TextColor(fg)
 				})
 			}
 		})
+		// A poster that failed to download or decode is a blank card too, so it
+		// leaves the row; a poster still loading stays until it fails. Titles
+		// with no poster address were already ranked last by the lane builder
+		// and only fill a short row, so they stay.
+		shown := make([]model.Item, 0, len(lane.Items))
+		for _, it := range lane.Items {
+			if pic := model.ResolveURL("", it.Pic); pic != "" && a.failed[pic] {
+				continue
+			}
+			shown = append(shown, it)
+		}
+		lane.Items = shown
 		if len(lane.Items) == 0 {
 			return
 		}
@@ -142,7 +159,7 @@ func (a *App) heroItems() (string, []model.Item) {
 	}
 	var out []model.Item
 	for _, it := range lane.Items {
-		if strings.TrimSpace(it.Pic) != "" {
+		if pic := model.ResolveURL("", it.Pic); pic != "" && !a.failed[pic] {
 			out = append(out, it)
 		}
 		if len(out) == heroCount {
@@ -164,6 +181,9 @@ func (a *App) heroStep(delta, n int) {
 // openItem opens a card's title: the aggregated one across sources for
 // home rows, or the source's own detail.
 func (a *App) openItem(siteKey string, item model.Item) {
+	// Remember whether the title was opened from the aggregate page, so back()
+	// returns there with its rows and scroll position intact.
+	a.fromMore = a.screen == screenMore
 	if strings.HasPrefix(item.ID, titlePrefix) {
 		a.openTitle(strings.TrimPrefix(item.ID, titlePrefix))
 		return

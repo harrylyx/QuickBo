@@ -47,6 +47,7 @@ const (
 	screenFav         = "fav"
 	screenSources     = "sources"
 	screenRules       = "rules"
+	screenMore        = "more"
 )
 
 // App is the window state. Methods that change it run on the UI thread,
@@ -175,12 +176,22 @@ type App struct {
 	browseScroll ui.ScrollState
 	appending    bool
 	listAnchored bool
+	// The aggregate page behind a home row's 查看更多 (more_page.go): the
+	// merged row, its title lookup (so opening a title uses every source that
+	// lists it), and a sequence number that drops stale loads.
+	moreRow     homeLane
+	moreLookup  map[string][]titleHit
+	moreLoading bool
+	moreSeq     int
+	fromMore    bool
 
 	grid     ui.GridState
 	selected int
 	chState  ui.ListState
 
 	posters       map[string]*ui.Bitmap
+	posterUsed    map[string]int64
+	posterTick    int64
 	art           map[string]artExtras
 	fetching      map[string]bool
 	failed        map[string]bool
@@ -201,7 +212,11 @@ type App struct {
 	offerPick     int
 	stats         map[string]sourceStat
 
-	gen          int
+	gen int
+	// offerGen identifies the current title's source probe (loadOffers). It
+	// changes only when another title is opened, so playing an episode or
+	// coming back from the player does not cancel the probe.
+	offerGen     int
 	settingsPath string
 }
 
@@ -281,13 +296,13 @@ func (a *App) Load(ref string) {
 	a.loading = true
 	a.loadErr = ""
 	a.loadNote = ""
-	ctx, gen := a.beginLoad()
+	ctx, _ := a.beginLoad()
 	go func() {
 		cctx, cancel := context.WithTimeout(withUserRefs(ctx, []string{ref}), 30*time.Second)
 		defer cancel()
 		cfg, err := a.fetch(cctx, ref)
 		a.post(func() {
-			if a.gen != gen {
+			if ctx.Err() != nil {
 				return
 			}
 			if err != nil {
@@ -683,7 +698,8 @@ func (a *App) playEpisode(line string, ep model.Episode) {
 	if a.cfg != nil {
 		parses = a.cfg.Parses
 	}
-	gen := a.bump()
+	// 不调用bump()，保持gen不变，让详情页的片源探测继续运行
+	gen := a.gen
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 		defer cancel()
@@ -812,6 +828,11 @@ func (a *App) back() {
 		}
 		a.screen = screenBrowse
 	case screenDetail:
+		if a.fromMore {
+			a.fromMore = false
+			a.screen = screenMore
+			return
+		}
 		if a.sideSel == "home" || a.sideSel == "" {
 			a.screen = screenHome
 			return
@@ -846,6 +867,7 @@ func (a *App) poster(url string) *ui.Bitmap {
 		return nil
 	}
 	if bmp, ok := a.posters[url]; ok {
+		a.touchPoster(url)
 		return bmp
 	}
 	if a.win == nil || a.fetching[url] || len(a.fetching) >= 8 {
@@ -903,12 +925,42 @@ func (a *App) imageHeaders() map[string]string {
 	return h
 }
 
-func (a *App) remember(url string, bmp *ui.Bitmap) {
-	if len(a.posters) > 200 {
-		a.posters = map[string]*ui.Bitmap{}
-		a.art = map[string]artExtras{}
+// posterLimit is how many decoded posters stay in memory. A home screen can
+// show a few hundred at once, so the limit sits well above that.
+const posterLimit = 400
+
+// touchPoster marks url as just drawn, so eviction keeps what is on screen.
+func (a *App) touchPoster(url string) {
+	if a.posterUsed == nil {
+		a.posterUsed = map[string]int64{}
 	}
+	a.posterTick++
+	a.posterUsed[url] = a.posterTick
+}
+
+// remember stores a poster and, over posterLimit, drops the least recently
+// drawn ones. Clearing everything made every visible poster reload at once,
+// which then overflowed the cache again and looped.
+func (a *App) remember(url string, bmp *ui.Bitmap) {
 	a.posters[url] = bmp
+	a.touchPoster(url)
+	for len(a.posters) > posterLimit {
+		oldest, at := "", int64(-1)
+		for u := range a.posters {
+			if u == url {
+				continue
+			}
+			if t := a.posterUsed[u]; at < 0 || t < at {
+				oldest, at = u, t
+			}
+		}
+		if oldest == "" {
+			break
+		}
+		delete(a.posters, oldest)
+		delete(a.posterUsed, oldest)
+		delete(a.art, oldest)
+	}
 }
 
 func (a *App) visibleChannels() []live.Channel {

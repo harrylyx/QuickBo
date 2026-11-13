@@ -31,6 +31,11 @@ func (a *App) playerKeys(c *ui.Context) {
 		return
 	}
 	if a.player == nil {
+		// While the stream is still resolving (or failed to open) there is no
+		// player, but Escape must still leave the play screen.
+		if a.screen == screenPlay && c.Shortcut(0, ui.KeyEscape) {
+			a.back()
+		}
 		return
 	}
 	// Keep the local fullscreen flag in sync with the real state, so a toggle
@@ -67,25 +72,27 @@ func (a *App) playerKeys(c *ui.Context) {
 			a.back()
 		}
 	}
-	if a.resumeAt > 0 && a.player.Ready() {
-		a.player.Seek(time.Duration(a.resumeAt * float64(time.Second)))
-		a.resumeAt = 0
-	}
-	// Holding space past spaceBoostDelay turns it into a temporary 2× boost;
-	// release restores the chosen rate (see playerInput).
-	if !a.spaceDownAt.IsZero() && !a.spaceBoosted && time.Since(a.spaceDownAt) > spaceBoostDelay {
-		a.spaceBoosted = true
-		a.player.SetRate(2)
-		a.player.Play()
-	}
-	if a.player.Playing() {
-		a.noteProgress()
-	}
-	// Video frames repaint only the video element (paintVideo), not the
-	// view. Keep a slow frame loop alive while playing so the progress and
-	// buffer bars move, and while space is held so the boost can kick in.
-	if a.player.Playing() || a.player.Buffering() || !a.spaceDownAt.IsZero() {
-		c.After(250 * time.Millisecond)
+	if a.player != nil {
+		if a.resumeAt > 0 && a.player.Ready() {
+			a.player.Seek(time.Duration(a.resumeAt * float64(time.Second)))
+			a.resumeAt = 0
+		}
+		// Holding space past spaceBoostDelay turns it into a temporary 2× boost;
+		// release restores the chosen rate (see playerInput).
+		if !a.spaceDownAt.IsZero() && !a.spaceBoosted && time.Since(a.spaceDownAt) > spaceBoostDelay {
+			a.spaceBoosted = true
+			a.player.SetRate(2)
+			a.player.Play()
+		}
+		if a.player.Playing() {
+			a.noteProgress()
+		}
+		// Video frames repaint only the video element (paintVideo), not the
+		// view. Keep a slow frame loop alive while playing so the progress and
+		// buffer bars move, and while space is held so the boost can kick in.
+		if a.player.Playing() || a.player.Buffering() || !a.spaceDownAt.IsZero() {
+			c.After(250 * time.Millisecond)
+		}
 	}
 }
 
