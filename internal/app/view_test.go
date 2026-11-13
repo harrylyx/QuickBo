@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -56,6 +57,7 @@ func TestHomeShowsEverySource(t *testing.T) {
 		{Key: "c", Name: "演示源", Items: []model.Item{{ID: "1", Title: "示例影片"}}},
 		{Key: "d", Name: "另一源", Items: []model.Item{{ID: "2", Title: "另一部"}}},
 	}
+	expandSideGroups(a)
 	tt := ui.NewTester(a.View, 1200, 800)
 	if !tt.HasText("示例影片") || !tt.HasText("另一部") || !tt.HasText("全部片源") {
 		t.Fatalf("texts %q", tt.Texts())
@@ -209,6 +211,7 @@ func TestSidebarRemoveIsOnlyAHoverIcon(t *testing.T) {
 	a.screen = screenHome
 	a.sideSel = "home"
 	a.lastSide = "home"
+	expandSideGroups(a)
 	tt := ui.NewTester(a.View, 1200, 800)
 	if _, ok := tt.Find("移除"); ok {
 		t.Fatalf("sidebar still shows a permanent remove label: %q", tt.Texts())
@@ -293,8 +296,9 @@ func TestLoadErrorOffersRetryAndEmptyHistoryOffersHome(t *testing.T) {
 	if err := tt.Click("重试订阅"); err != nil {
 		t.Fatal(err)
 	}
-	if !a.adding || a.loadErr != "" {
-		t.Fatalf("retry did not open subscriptions: adding=%v err=%q", a.adding, a.loadErr)
+	// With a configuration loaded, subscriptions live on the management page.
+	if a.screen != screenSubs || a.sideSel != "manage" || a.loadErr != "" {
+		t.Fatalf("retry did not open subscriptions: screen=%q side=%q err=%q", a.screen, a.sideSel, a.loadErr)
 	}
 
 	b := New()
@@ -432,4 +436,75 @@ func indexOf(s, sub string) int {
 		}
 	}
 	return -1
+}
+
+// expandSideGroups opens every sidebar source group, which start collapsed.
+func expandSideGroups(a *App) {
+	for _, g := range a.sideGroups() {
+		*a.sidebarOpenState(g.name, false) = true
+	}
+}
+
+// Sidebar source groups start collapsed and say they hold sources; the group
+// holding the source on screen starts open.
+func TestSidebarGroupsStartCollapsedAndLabelled(t *testing.T) {
+	a := New()
+	a.settingsPath = ""
+	a.catalog = &source.Catalog{Sites: []source.Source{cmsFake{}, otherFake{}}}
+	a.screen, a.sideSel, a.lastSide = screenHome, "home", "home"
+	tt := ui.NewTester(a.View, 1200, 800)
+	if _, ok := tt.Find("演示源"); ok {
+		t.Fatalf("source groups must start collapsed: %q", tt.Texts())
+	}
+	found := false
+	for _, txt := range tt.Texts() {
+		if strings.HasPrefix(txt, "片源 · ") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("group title must say it holds sources: %q", tt.Texts())
+	}
+
+	b := New()
+	b.settingsPath = ""
+	b.catalog = &source.Catalog{Sites: []source.Source{cmsFake{}}}
+	b.screen, b.sideSel, b.lastSide = screenBrowse, "site:c", "site:c"
+	tb := ui.NewTester(b.View, 1200, 800)
+	if _, ok := tb.Find("演示源"); !ok {
+		t.Fatalf("the group of the source on screen must start open: %q", tb.Texts())
+	}
+}
+
+// The sidebar's one 管理 entry opens a page whose tabs reach subscriptions,
+// sources, the blacklist and the home rows.
+func TestManagePageTabs(t *testing.T) {
+	a := New()
+	a.settingsPath = ""
+	a.catalog = &source.Catalog{Sites: []source.Source{cmsFake{}}}
+	a.screen, a.sideSel, a.lastSide = screenHome, "home", "home"
+	tt := ui.NewTester(a.View, 1200, 800)
+	if err := tt.Click("订阅与片源"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if a.screen != screenSubs || a.sideSel != "manage" {
+		t.Fatalf("screen %q side %q", a.screen, a.sideSel)
+	}
+	for label, want := range map[string]string{"黑名单 0": screenBlacklist, "片源 0": screenSources} {
+		if err := tt.Click(label); err != nil {
+			t.Fatalf("%s: %v (%q)", label, err, tt.Texts())
+		}
+		tt.Frame()
+		if a.screen != want {
+			t.Fatalf("%s opened %q", label, a.screen)
+		}
+	}
+	// Leaving and coming back reopens the last tab.
+	a.goHome()
+	a.sideSel = "manage"
+	a.onSide()
+	if a.screen != screenSources {
+		t.Fatalf("manage must reopen the last tab, got %q", a.screen)
+	}
 }

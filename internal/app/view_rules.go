@@ -22,6 +22,12 @@ func (a *App) viewRules(c *ui.Context, th *ui.Theme) {
 					stopFrame = true
 					return
 				}
+				if ui.Button(c, "导入").Tooltip("从 JSON 文件导入分类，替换当前列表（保存后生效）").Clicked() {
+					a.importRulesDialog()
+				}
+				if ui.Button(c, "导出").Tooltip("把当前分类导出为 JSON 文件").Clicked() {
+					a.exportRulesDialog()
+				}
 				if ui.Button(c, "恢复默认").Clicked() {
 					a.resetRules()
 					stopFrame = true
@@ -38,6 +44,9 @@ func (a *App) viewRules(c *ui.Context, th *ui.Theme) {
 					return
 				}
 			})
+			if a.rulesNote != "" {
+				ui.Text(c, a.rulesNote).FontSize(fontCaption).TextColor(th.TextMuted).Wrap()
+			}
 			if stopFrame {
 				// The row set or the screen changed mid-frame; let the next
 				// frame rebuild with fresh draft pointers.

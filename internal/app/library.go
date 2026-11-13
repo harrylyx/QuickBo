@@ -131,6 +131,13 @@ func mergeWatch(dst *watchItem, prev watchItem) {
 	if dst.URL == "" {
 		dst.URL = prev.URL
 	}
+	// Resuming from history has no episode list to name the episode from.
+	if dst.Episode == "" {
+		dst.Episode = prev.Episode
+	}
+	if dst.Pic == "" {
+		dst.Pic = prev.Pic
+	}
 	if dst.Duration == 0 {
 		dst.Duration = prev.Duration
 	}
@@ -254,6 +261,25 @@ func (a *App) watchKey() string {
 		id = a.playTitle
 	}
 	return mediaKey(a.siteKey, id)
+}
+
+// playHistory resumes a history entry. The detail of whatever was opened
+// last must not stay behind: the player title, the history record and the
+// progress all key off a.detail, so a stale one sent every entry to the
+// title watched before.
+func (a *App) playHistory(w watchItem) {
+	a.prepareHistory(w)
+	a.startPlay(w.Title, w.URL, nil, false)
+}
+
+func (a *App) prepareHistory(w watchItem) {
+	a.resumeAt = w.Position
+	a.siteKey = w.SiteKey
+	a.playLine = w.Line
+	a.playIndex = -1
+	a.linePick = 0
+	a.detail = &model.Detail{ID: w.VodID, Title: w.Title, Pic: w.Pic}
+	a.detailTitle = w.Title
 }
 
 func (a *App) rememberCurrent(raw string) {

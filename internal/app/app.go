@@ -47,6 +47,8 @@ const (
 	screenFav         = "fav"
 	screenSources     = "sources"
 	screenRules       = "rules"
+	screenSubs        = "subs"
+	screenBlacklist   = "blacklist"
 	screenMore        = "more"
 )
 
@@ -171,6 +173,9 @@ type App struct {
 	probingTotal   int                   // 批量测速总数
 	blacklist      []string              // 片源黑名单关键字
 	blacklistDraft string                // 黑名单关键字输入框
+	manageLast     string                // 管理页上次打开的标签（screenSubs 等）
+	blFilter       string                // 黑名单搜索关键字
+	blSel          map[string]bool       // 批量选中的黑名单关键字（小写）
 	sidebarOpen    map[string]*bool      // 侧边栏分组的展开状态（按分组名）
 
 	browseScroll ui.ScrollState
@@ -183,18 +188,30 @@ type App struct {
 	moreLookup  map[string][]titleHit
 	moreLoading bool
 	moreSeq     int
-	fromMore    bool
+	// moreKeys is the shown title order; moreBallots every item read so far;
+	// moreCursors where each matching category has been read up to.
+	moreKeys      []string
+	moreBallots   []ballot
+	moreCursors   []moreCursor
+	moreAppending bool
+	fromMore      bool
 
 	grid     ui.GridState
 	selected int
 	chState  ui.ListState
 
-	posters       map[string]*ui.Bitmap
-	posterUsed    map[string]int64
-	posterTick    int64
-	art           map[string]artExtras
-	fetching      map[string]bool
-	failed        map[string]bool
+	posters    map[string]*ui.Bitmap
+	posterUsed map[string]int64
+	posterTick int64
+	art        map[string]artExtras
+	fetching   map[string]bool
+	failed     map[string]bool
+	// posterTries counts network failures per poster; a slow or busy image
+	// host gets posterRetries more tries before the poster counts as failed.
+	posterTries map[string]int
+	// coverLaid marks covers (per screen) that have been laid out once, so
+	// their InViewMargin answer is known (see cover).
+	coverLaid     map[string]bool
 	hidden        map[string]bool
 	homeRules     []homeRule
 	ruleNames     []string
@@ -202,6 +219,7 @@ type App struct {
 	ruleFocus     []bool
 	ruleSeq       int
 	rulesDirty    bool
+	rulesNote     string // 分类导入导出的结果提示
 	home          []homeLane
 	homeHits      []homeLane
 	homeSearching bool
@@ -453,16 +471,12 @@ func (a *App) onSide() {
 		a.committed = ""
 		a.screen = screenFav
 		a.closePlayer()
+	case a.sideSel == "manage":
+		a.goManage(a.manageLast)
 	case a.sideSel == "sources":
-		a.query = ""
-		a.committed = ""
-		a.screen = screenSources
-		a.closePlayer()
+		a.goManage(screenSources)
 	case a.sideSel == "rules":
-		a.query = ""
-		a.committed = ""
-		a.screen = screenRules
-		a.closePlayer()
+		a.goManage(screenRules)
 	case strings.HasPrefix(a.sideSel, "site:"):
 		a.selectSite(strings.TrimPrefix(a.sideSel, "site:"))
 	case strings.HasPrefix(a.sideSel, "live:"):
@@ -884,6 +898,7 @@ func (a *App) poster(url string) *ui.Bitmap {
 			retry := map[string]string{"User-Agent": httpx.BrowserUA, "Accept": "image/*,*/*"}
 			body, _, err = httpx.Get(ctx, nil, url, retry, 4<<20)
 		}
+		netErr := err != nil
 		var img image.Image
 		if err == nil {
 			img, _, err = image.Decode(bytes.NewReader(body))
@@ -906,6 +921,16 @@ func (a *App) poster(url string) *ui.Bitmap {
 					return
 				}
 			}
+			// A download that timed out or was refused may work next time:
+			// many posters at once easily overrun a slow host.
+			if netErr && a.posterTries[url] < posterRetries {
+				if a.posterTries == nil {
+					a.posterTries = map[string]int{}
+				}
+				a.posterTries[url]++
+				return
+			}
+			delete(a.posterTries, url)
 			a.failed[url] = true
 		})
 	}()
@@ -925,9 +950,23 @@ func (a *App) imageHeaders() map[string]string {
 	return h
 }
 
-// posterLimit is how many decoded posters stay in memory. A home screen can
-// show a few hundred at once, so the limit sits well above that.
+// posterLimit is how many decoded posters stay in memory. Only covers near
+// the viewport count as drawn (see cover), so the limit only has to hold a
+// few screens' worth, with room for scrolling back.
 const posterLimit = 400
+
+// posterRetries is how many extra tries a poster gets after a network error.
+const posterRetries = 2
+
+// cachedPoster returns a poster already in memory without loading it or
+// marking it as drawn: for covers far from the viewport.
+func (a *App) cachedPoster(url string) *ui.Bitmap {
+	url = model.ResolveURL("", url)
+	if url == "" || a.failed[url] {
+		return nil
+	}
+	return a.posters[url]
+}
 
 // touchPoster marks url as just drawn, so eviction keeps what is on screen.
 func (a *App) touchPoster(url string) {

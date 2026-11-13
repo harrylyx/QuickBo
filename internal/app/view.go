@@ -75,10 +75,8 @@ func (a *App) View(c *ui.Context) {
 								a.viewHistory(c, th)
 							case screenFav:
 								a.viewFavs(c, th)
-							case screenSources:
-								a.viewSources(c, th)
-							case screenRules:
-								a.viewRules(c, th)
+							case screenSubs, screenSources, screenBlacklist, screenRules:
+								a.viewManage(c, th)
 							case screenMore:
 								a.viewMore(c, th)
 							case screenIndex:
@@ -153,181 +151,196 @@ func (a *App) viewWelcome(c *ui.Context, th *ui.Theme) {
 func (a *App) viewSubs(c *ui.Context, th *ui.Theme) {
 	ui.Modal(c, &a.adding, func() {
 		ui.Column(c).Width(640).Gap(14).Children(func() {
-			ui.Text(c, "订阅").FontSize(fontHeadline).Bold()
-			ui.Text(c, "TVBox / FongMi 订阅的 URL，或本机 JSON。多份源会合并；停用或删除后立即重新加载。").TextColor(th.TextMuted).Wrap()
+			a.subsPanel(c, th, false)
+		})
+	})
+}
 
-			sortSel := a.subSort
-			if sortSel == "" {
-				sortSel = "名称"
+// subsPanel is the subscription list with its add field: in a dialog before
+// any configuration is loaded (page false), and as the 订阅 tab of the
+// management page after.
+func (a *App) subsPanel(c *ui.Context, th *ui.Theme, page bool) {
+	if !page {
+		ui.Text(c, "订阅").FontSize(fontHeadline).Bold()
+	}
+	ui.Text(c, "TVBox / FongMi 订阅的 URL，或本机 JSON。多份源会合并；停用或删除后立即重新加载。").TextColor(th.TextMuted).Wrap()
+
+	sortSel := a.subSort
+	if sortSel == "" {
+		sortSel = "名称"
+	}
+	batchLabel := "批量管理"
+	if a.subBatch {
+		batchLabel = "完成"
+	}
+	ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+		ui.SearchField(c, &a.subFilter).Placeholder("搜索订阅").Width(200).Label("搜索订阅")
+		ui.Column(c).Grow(1)
+		ui.Select(c, &sortSel, subSortOptions).Label("排序").Width(124)
+		if ui.Button(c, batchLabel).Clicked() {
+			a.subBatch = !a.subBatch
+			if !a.subBatch {
+				a.subSel = nil
 			}
-			batchLabel := "批量管理"
-			if a.subBatch {
-				batchLabel = "完成"
-			}
-			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-				ui.SearchField(c, &a.subFilter).Placeholder("搜索订阅").Width(200).Label("搜索订阅")
-				ui.Column(c).Grow(1)
-				ui.Select(c, &sortSel, subSortOptions).Label("排序").Width(124)
-				if ui.Button(c, batchLabel).Clicked() {
-					a.subBatch = !a.subBatch
-					if !a.subBatch {
-						a.subSel = nil
-					}
+		}
+	})
+	a.subSort = sortSel
+
+	subs := a.filteredSubs()
+	counts := a.subSourceCounts()
+	stop := false
+	list := ui.Scroll(c).FillWidth()
+	if page {
+		list.Grow(1).MinHeight(160)
+	} else {
+		list.Height(240)
+	}
+	list.Children(func() {
+		ui.Column(c).FillWidth().Gap(8).Children(func() {
+			if len(subs) == 0 {
+				if len(a.subs) == 0 {
+					ui.Text(c, "还没有订阅").TextColor(th.TextMuted)
+				} else {
+					ui.Text(c, "没有匹配「"+strings.TrimSpace(a.subFilter)+"」的订阅").TextColor(th.TextMuted)
 				}
-			})
-			a.subSort = sortSel
-
-			subs := a.filteredSubs()
-			counts := a.subSourceCounts()
-			stop := false
-			ui.Scroll(c).FillWidth().Height(240).Children(func() {
-				ui.Column(c).FillWidth().Gap(8).Children(func() {
-					if len(subs) == 0 {
-						if len(a.subs) == 0 {
-							ui.Text(c, "还没有订阅").TextColor(th.TextMuted)
-						} else {
-							ui.Text(c, "没有匹配「"+strings.TrimSpace(a.subFilter)+"」的订阅").TextColor(th.TextMuted)
-						}
-						return
-					}
-					for i := range subs {
-						sub := subs[i]
-						ref := sub.Ref
-						ui.Row(c.Key("sub:"+ref)).FillWidth().Padding(10, 12).Radius(8).Background(th.Surface).AlignItems(ui.Center).Gap(8).Children(func() {
-							if a.subBatch {
-								checked := a.subSel[ref]
-								if ui.Checkbox(c, &checked, "").Changed() {
-									if a.subSel == nil {
-										a.subSel = map[string]bool{}
-									}
-									if checked {
-										a.subSel[ref] = true
-									} else {
-										delete(a.subSel, ref)
-									}
-								}
-							}
-							ui.Column(c).Grow(1).Gap(2).Shrink(1).Children(func() {
-								ui.Text(c, sub.Name).FontSize(fontBody).SingleLine()
-								ui.Text(c, ref).FontSize(fontCaption).TextColor(th.TextMuted).SingleLine()
-								if !sub.Enabled {
-									ui.Text(c, "已停用").FontSize(fontCaption).TextColor(th.TextMuted)
-								}
-							})
-							if n := counts[subLabel(sub)]; n > 0 {
-								ui.Text(c, fmt.Sprintf("%d 个源", n)).FontSize(fontCaption).TextColor(th.TextMuted).SingleLine()
-							}
-							if !a.subBatch {
-								label, glyph := "停用", iconPause
-								if !sub.Enabled {
-									label, glyph = "启用", iconPlay
-								}
-								a.iconBtn(c, "sub-toggle:"+ref, glyph, label, 30, 16, th.TextMuted, func() {
-									a.toggleSubscription(ref)
-									stop = true
-								})
-								a.iconBtn(c, "sub-drop:"+ref, iconTrash, "删除订阅", 30, 16, th.Danger, func() {
-									a.removeSubscription(ref)
-									stop = true
-								})
-							}
-						})
-						if stop {
-							return
-						}
-					}
-				})
-			})
-			if stop {
 				return
 			}
-
-			if a.subBatch {
-				all := ui.CheckOff
-				selCount := 0
-				for _, s := range subs {
-					if a.subSel[s.Ref] {
-						selCount++
-					}
-				}
-				switch {
-				case selCount == len(subs) && len(subs) > 0:
-					all = ui.CheckOn
-				case selCount > 0:
-					all = ui.CheckMixed
-				}
-				ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-					if ui.CheckboxState(c, &all, "全选").Changed() {
-						if a.subSel == nil {
-							a.subSel = map[string]bool{}
-						}
-						if all == ui.CheckOn {
-							for _, s := range subs {
-								a.subSel[s.Ref] = true
+			for i := range subs {
+				sub := subs[i]
+				ref := sub.Ref
+				ui.Row(c.Key("sub:"+ref)).FillWidth().Padding(10, 12).Radius(8).Background(th.Surface).AlignItems(ui.Center).Gap(8).Children(func() {
+					if a.subBatch {
+						checked := a.subSel[ref]
+						if ui.Checkbox(c, &checked, "").Changed() {
+							if a.subSel == nil {
+								a.subSel = map[string]bool{}
 							}
-						} else {
-							a.subSel = nil
-						}
-					}
-					ui.Column(c).Grow(1)
-					selected := func() []string {
-						var out []string
-						for r, on := range a.subSel {
-							if on {
-								out = append(out, r)
+							if checked {
+								a.subSel[ref] = true
+							} else {
+								delete(a.subSel, ref)
 							}
 						}
-						return out
 					}
-					if ui.Button(c, "启用").Disabled(selCount == 0).Clicked() && selCount > 0 {
-						a.setSubscriptionsEnabled(selected(), true)
-						stop = true
+					ui.Column(c).Grow(1).Gap(2).Shrink(1).Children(func() {
+						ui.Text(c, sub.Name).FontSize(fontBody).SingleLine()
+						ui.Text(c, ref).FontSize(fontCaption).TextColor(th.TextMuted).SingleLine()
+						if !sub.Enabled {
+							ui.Text(c, "已停用").FontSize(fontCaption).TextColor(th.TextMuted)
+						}
+					})
+					if n := counts[subLabel(sub)]; n > 0 {
+						ui.Text(c, fmt.Sprintf("%d 个源", n)).FontSize(fontCaption).TextColor(th.TextMuted).SingleLine()
 					}
-					if ui.Button(c, "停用").Disabled(selCount == 0).Clicked() && selCount > 0 {
-						a.setSubscriptionsEnabled(selected(), false)
-						stop = true
-					}
-					if ui.Button(c, "删除").Disabled(selCount == 0).Clicked() && selCount > 0 {
-						a.deleteSubscriptions(selected())
-						stop = true
+					if !a.subBatch {
+						label, glyph := "停用", iconPause
+						if !sub.Enabled {
+							label, glyph = "启用", iconPlay
+						}
+						a.iconBtn(c, "sub-toggle:"+ref, glyph, label, 30, 16, th.TextMuted, func() {
+							a.toggleSubscription(ref)
+							stop = true
+						})
+						a.iconBtn(c, "sub-drop:"+ref, iconTrash, "删除订阅", 30, 16, th.Danger, func() {
+							a.removeSubscription(ref)
+							stop = true
+						})
 					}
 				})
 				if stop {
 					return
 				}
 			}
-
-			ui.Text(c, "配置 URL").FontSize(fontCaption).TextColor(th.TextMuted)
-			field := ui.TextInput(c, &a.urlDraft).Placeholder("https://example.com/tvbox.json").Label("配置 URL")
-			if field.Submitted() {
-				ref := a.urlDraft
-				a.urlDraft = ""
-				a.adding = false
-				a.AddSubscription(ref)
-				return
-			}
-			if a.loadErr != "" && a.catalog != nil {
-				a.noteWithActions(c, th, a.loadErr, true, stateAction{label: "重试订阅", primary: true, click: a.retrySubs})
-			}
-			ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
-				if ui.Button(c, "取消").Clicked() {
-					a.adding = false
-					a.subBatch = false
-					a.subSel = nil
-					a.subFilter = ""
-				}
-				if ui.Button(c, "打开文件").Clicked() {
-					a.pickFile()
-				}
-				if ui.PrimaryButton(c, "添加订阅").Clicked() {
-					ref := a.urlDraft
-					a.urlDraft = ""
-					a.adding = false
-					a.AddSubscription(ref)
-					return
-				}
-			})
 		})
+	})
+	if stop {
+		return
+	}
+
+	if a.subBatch {
+		all := ui.CheckOff
+		selCount := 0
+		for _, s := range subs {
+			if a.subSel[s.Ref] {
+				selCount++
+			}
+		}
+		switch {
+		case selCount == len(subs) && len(subs) > 0:
+			all = ui.CheckOn
+		case selCount > 0:
+			all = ui.CheckMixed
+		}
+		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+			if ui.CheckboxState(c, &all, "全选").Changed() {
+				if a.subSel == nil {
+					a.subSel = map[string]bool{}
+				}
+				if all == ui.CheckOn {
+					for _, s := range subs {
+						a.subSel[s.Ref] = true
+					}
+				} else {
+					a.subSel = nil
+				}
+			}
+			ui.Column(c).Grow(1)
+			selected := func() []string {
+				var out []string
+				for r, on := range a.subSel {
+					if on {
+						out = append(out, r)
+					}
+				}
+				return out
+			}
+			if ui.Button(c, "启用").Disabled(selCount == 0).Clicked() && selCount > 0 {
+				a.setSubscriptionsEnabled(selected(), true)
+				stop = true
+			}
+			if ui.Button(c, "停用").Disabled(selCount == 0).Clicked() && selCount > 0 {
+				a.setSubscriptionsEnabled(selected(), false)
+				stop = true
+			}
+			if ui.Button(c, "删除").Disabled(selCount == 0).Clicked() && selCount > 0 {
+				a.deleteSubscriptions(selected())
+				stop = true
+			}
+		})
+		if stop {
+			return
+		}
+	}
+
+	ui.Text(c, "配置 URL").FontSize(fontCaption).TextColor(th.TextMuted)
+	field := ui.TextInput(c, &a.urlDraft).Placeholder("https://example.com/tvbox.json").Label("配置 URL")
+	if field.Submitted() {
+		ref := a.urlDraft
+		a.urlDraft = ""
+		a.adding = false
+		a.AddSubscription(ref)
+		return
+	}
+	if a.loadErr != "" && a.catalog != nil {
+		a.noteWithActions(c, th, a.loadErr, true, stateAction{label: "重试订阅", primary: true, click: a.retrySubs})
+	}
+	ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
+		if !page && ui.Button(c, "取消").Clicked() {
+			a.adding = false
+			a.subBatch = false
+			a.subSel = nil
+			a.subFilter = ""
+		}
+		if ui.Button(c, "打开文件").Clicked() {
+			a.pickFile()
+		}
+		if ui.PrimaryButton(c, "添加订阅").Clicked() {
+			ref := a.urlDraft
+			a.urlDraft = ""
+			a.adding = false
+			a.AddSubscription(ref)
+			return
+		}
 	})
 }
 
@@ -335,7 +348,7 @@ func (a *App) viewSettings(c *ui.Context, th *ui.Theme) {
 	ui.Modal(c, &a.settingsOpen, func() {
 		ui.Column(c).Width(480).Gap(16).Children(func() {
 			ui.Text(c, "设置").FontSize(fontHeadline).Bold()
-			ui.Text(c, "外观偏好只影响这台设备。订阅地址在顶部「订阅」中管理。").TextColor(th.TextMuted).Wrap()
+			ui.Text(c, "外观偏好只影响这台设备。订阅、片源、黑名单和首页分类在侧栏「订阅与片源」中管理。").TextColor(th.TextMuted).Wrap()
 
 			ui.Text(c, "外观").FontSize(fontCaption).TextColor(th.TextMuted)
 			ui.Row(c).Gap(8).Children(func() {
@@ -349,42 +362,17 @@ func (a *App) viewSettings(c *ui.Context, th *ui.Theme) {
 				})
 			})
 
-			bl := "片源黑名单"
-			if n := len(a.blacklist); n > 0 {
-				bl = fmt.Sprintf("片源黑名单（%d 个关键字）", n)
-			}
-			ui.Text(c, bl).FontSize(fontCaption).TextColor(th.TextMuted)
-			ui.Text(c, "片源或直播名称命中这些关键字时会被全局隐藏，移出黑名单后恢复。改动会重新加载订阅（优先走本地缓存）。").TextColor(th.TextMuted).Wrap()
-			field := ui.TextInput(c, &a.blacklistDraft).Placeholder("关键字，如「测试」「广告」").Label("黑名单关键字")
-			if field.Submitted() {
-				a.addBlacklist(a.blacklistDraft)
-				return
-			}
-			stop := false
-			if len(a.blacklist) > 0 {
-				// A long list scrolls inside the dialog instead of pushing it
-				// past the window.
-				ui.Scroll(c.Key("bl-scroll")).MaxHeight(200).Children(func() {
-					ui.Row(c).Gap(8).Wrap().Padding(0, 6, 0, 0).Children(func() {
-						for i := range a.blacklist {
-							kw := a.blacklist[i]
-							ui.Row(c.Key("bl:"+kw)).Padding(6, 10).Radius(8).Background(th.Surface).AlignItems(ui.Center).Gap(6).Children(func() {
-								ui.Text(c, kw).FontSize(fontBody).SingleLine()
-								a.iconBtn(c, "bl-drop:"+kw, iconClose, "移除关键字", 20, 12, th.TextMuted, func() {
-									a.removeBlacklist(kw)
-									stop = true
-								})
-							})
-							if stop {
-								return
-							}
-						}
-					})
-				})
-			}
-			if stop {
-				return
-			}
+			ui.Text(c, "片源黑名单").FontSize(fontCaption).TextColor(th.TextMuted)
+			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+				note := "还没有关键字"
+				if n := len(a.blacklist); n > 0 {
+					note = fmt.Sprintf("%d 个关键字", n)
+				}
+				ui.Text(c, note+"，在「片源」页的「黑名单」里管理。").TextColor(th.TextMuted).Grow(1).Wrap()
+				if ui.Button(c, "管理黑名单").Clicked() {
+					a.openBlacklist()
+				}
+			})
 
 			ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
 				if ui.PrimaryButton(c, "完成").Clicked() {
@@ -395,9 +383,16 @@ func (a *App) viewSettings(c *ui.Context, th *ui.Theme) {
 	})
 }
 
+// openSubs shows the subscriptions: the 订阅 tab of the management page
+// once a configuration is loaded, a dialog on the welcome screen before.
 func (a *App) openSubs() {
 	a.urlDraft = ""
 	a.settingsOpen = false
+	if a.catalog != nil {
+		a.adding = false
+		a.goManage(screenSubs)
+		return
+	}
 	a.adding = true
 }
 
@@ -439,12 +434,11 @@ func (a *App) viewSidebar(c *ui.Context, th *ui.Theme) {
 				ui.SidebarItem(c, "fav", iconHeart, "收藏")
 			})
 			ui.SidebarSection(c, "管理", nil, func() {
-				ui.SidebarItem(c, "sources", iconSignal, "片源")
-				ui.SidebarItem(c, "rules", iconList, "分类")
+				ui.SidebarItem(c, "manage", iconGear, "订阅与片源")
 			})
 			for _, g := range a.sideGroups() {
 				g := g
-				ui.SidebarSection(c, g.name, a.sidebarOpenState(g.name), func() {
+				ui.SidebarSection(c, sideGroupTitle(g), a.sidebarOpenState(g.name, a.groupHasSelection(g)), func() {
 					for _, s := range g.sites {
 						m := s.Meta()
 						key := m.Key
@@ -555,7 +549,7 @@ func (a *App) viewTop(c *ui.Context, th *ui.Theme) {
 				}
 			}
 		}
-		if ui.Button(c, "订阅").Clicked() {
+		if !isManage(a.screen) && ui.Button(c, "订阅").Clicked() {
 			a.openSubs()
 		}
 	})
@@ -583,10 +577,8 @@ func (a *App) crumb() string {
 		return "资料库"
 	case screenFav:
 		return "资料库"
-	case screenSources:
-		return "片源"
-	case screenRules:
-		return "分类"
+	case screenSubs, screenSources, screenBlacklist, screenRules:
+		return "管理"
 	case screenMore:
 		return "首页"
 	case screenDetail:
@@ -615,8 +607,12 @@ func (a *App) headline() string {
 		return "观看历史"
 	case screenFav:
 		return "我的收藏"
+	case screenSubs:
+		return "订阅"
 	case screenSources:
 		return "片源"
+	case screenBlacklist:
+		return "黑名单"
 	case screenRules:
 		return "首页分类"
 	case screenMore:
@@ -875,13 +871,35 @@ func (a *App) removeBadge(c *ui.Context, th *ui.Theme, key, label string, remove
 	})
 }
 
+// coverPreload is how far outside the viewport, in DIPs, a cover starts
+// loading, so posters are there by the time they scroll in.
+const coverPreload = 600
+
 func (a *App) cover(c *ui.Context, th *ui.Theme, pic, title string, w, h float32, click func(), zoom bool) {
 	pic = model.ResolveURL("", pic)
 	if pic != "" && !a.failed[pic] {
 		// One element while loading and after, so the poster fades in over
 		// its placeholder once it arrives instead of popping in.
-		bmp := a.poster(pic)
 		box := ui.Box(c.Key("cover:" + pic)).Width(w).Height(h)
+		// Only covers near the viewport load and count as drawn. Otherwise a
+		// long grid marks every poster as just drawn each frame, the cache
+		// evicts ones on screen, they reload and evict others: posters blink
+		// and new ones never get a download slot.
+		var bmp *ui.Bitmap
+		if box.InViewMargin(coverPreload) {
+			bmp = a.poster(pic)
+		} else {
+			bmp = a.cachedPoster(pic)
+			// InViewMargin answers from the frame before; a cover laid out for
+			// the first time needs one more frame to know whether it shows.
+			if laid := a.screen + "|" + pic; !a.coverLaid[laid] {
+				if a.coverLaid == nil || len(a.coverLaid) > 20000 {
+					a.coverLaid = map[string]bool{}
+				}
+				a.coverLaid[laid] = true
+				c.After(50 * time.Millisecond)
+			}
+		}
 		in := fadeIn(box, bmp != nil)
 		if in < 1 {
 			box.Background(th.SurfaceHover)
@@ -1439,10 +1457,7 @@ func (a *App) viewHistory(c *ui.Context, th *ui.Theme) {
 			for _, w := range items {
 				w := w
 				card := ui.Column(c.Key("hist-" + w.Key)).Width(cellW).Gap(8).OnClick(func() {
-					a.resumeAt = w.Position
-					a.siteKey = w.SiteKey
-					a.playLine = w.Line
-					a.startPlay(w.Title, w.URL, nil, false)
+					a.playHistory(w)
 				}).Cursor(ui.CursorPointer)
 				hot := card.Hovered()
 				card.Children(func() {

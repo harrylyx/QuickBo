@@ -256,30 +256,70 @@ func cloneBlacklist(in []string) []string {
 
 // addBlacklist records a keyword and re-filters the loaded sources. The
 // reload reuses the on-disk cache, so it does not re-probe every source.
-func (a *App) addBlacklist(kw string) {
-	kw = strings.TrimSpace(kw)
-	if kw == "" {
+// addBlacklist adds one or more keywords. Several can be pasted at once,
+// separated by commas, semicolons, spaces or new lines (parseKeywords).
+func (a *App) addBlacklist(raw string) {
+	words := parseKeywords(raw)
+	a.blacklistDraft = ""
+	if len(words) == 0 {
 		return
 	}
+	seen := map[string]bool{}
 	for _, k := range a.blacklist {
-		if strings.EqualFold(k, kw) {
-			return
-		}
+		seen[strings.ToLower(k)] = true
 	}
-	a.blacklist = append(a.blacklist, kw)
-	a.blacklistDraft = ""
-	a.reloadSubs()
+	changed := false
+	for _, kw := range words {
+		if seen[strings.ToLower(kw)] {
+			continue
+		}
+		seen[strings.ToLower(kw)] = true
+		a.blacklist = append(a.blacklist, kw)
+		changed = true
+	}
+	if changed {
+		a.reloadSubs()
+	}
 }
 
 func (a *App) removeBlacklist(kw string) {
-	kept := a.blacklist[:0]
+	a.removeBlacklists([]string{kw})
+}
+
+// removeBlacklists drops several keywords (case-insensitive) and reloads the
+// subscriptions once.
+func (a *App) removeBlacklists(kws []string) {
+	drop := map[string]bool{}
+	for _, k := range kws {
+		drop[strings.ToLower(strings.TrimSpace(k))] = true
+	}
+	kept := make([]string, 0, len(a.blacklist))
 	for _, k := range a.blacklist {
-		if k != kw {
+		if !drop[strings.ToLower(strings.TrimSpace(k))] {
 			kept = append(kept, k)
 		}
 	}
+	a.blSel = nil
+	if len(kept) == len(a.blacklist) {
+		return
+	}
 	a.blacklist = kept
 	a.reloadSubs()
+}
+
+// blacklistHits lists the subscription's sources whose name contains kw.
+func (a *App) blacklistHits(kw string) []string {
+	kw = strings.ToLower(strings.TrimSpace(kw))
+	if kw == "" {
+		return nil
+	}
+	var out []string
+	for _, s := range a.allSites {
+		if name := s.Meta().Name; strings.Contains(strings.ToLower(name), kw) {
+			out = append(out, name)
+		}
+	}
+	return out
 }
 
 // blacklisted reports whether a source or live playlist name matches a
@@ -508,15 +548,45 @@ func (a *App) sideGroups() []sideGroup {
 
 // sidebarOpenState returns a stable pointer to a subscription group's
 // expanded flag, so SidebarSection can collapse and reopen it in place.
-// Groups start expanded.
-func (a *App) sidebarOpenState(name string) *bool {
+// Groups start collapsed, so a long source list does not bury the
+// navigation, unless they hold the source or live list on screen.
+func (a *App) sidebarOpenState(name string, selected bool) *bool {
 	if a.sidebarOpen == nil {
 		a.sidebarOpen = map[string]*bool{}
 	}
 	if p, ok := a.sidebarOpen[name]; ok {
 		return p
 	}
-	open := true
+	open := selected
 	a.sidebarOpen[name] = &open
 	return a.sidebarOpen[name]
+}
+
+// sideGroupTitle names a sidebar group so it reads as a list of sources:
+// "片源 · 订阅名 12", or 直播 when the group holds only live lists.
+func sideGroupTitle(g sideGroup) string {
+	kind := "片源"
+	if len(g.sites) == 0 && len(g.lives) > 0 {
+		kind = "直播"
+	}
+	title := kind
+	if name := strings.TrimSpace(g.name); name != "" {
+		title += " · " + name
+	}
+	return fmt.Sprintf("%s  %d", title, len(g.sites)+len(g.lives))
+}
+
+// groupHasSelection reports whether the sidebar selection is in g.
+func (a *App) groupHasSelection(g sideGroup) bool {
+	for _, s := range g.sites {
+		if a.sideSel == "site:"+s.Meta().Key {
+			return true
+		}
+	}
+	for _, li := range g.lives {
+		if a.sideSel == fmt.Sprintf("live:%d", li.idx) {
+			return true
+		}
+	}
+	return false
 }
