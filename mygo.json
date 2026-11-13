@@ -5,6 +5,7 @@
   "version": "0.1.0",
   "copyright": "© 2026 QuickBo contributors",
   "license": "MIT",
+  "icon": "icon/icon.png",
   "main": "./cmd/quickbo",
   "out": "build",
   "macos": {
@@ -12,8 +13,14 @@
   },
   "linux": {
     "comment": "TVBox 兼容的桌面播放器",
-    "categories": ["AudioVideo", "Video", "Player"],
-    "depends": ["libmpv2"],
+    "categories": [
+      "AudioVideo",
+      "Video",
+      "Player"
+    ],
+    "depends": [
+      "libmpv2"
+    ],
     "webview": false
   }
 }

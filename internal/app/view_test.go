@@ -609,3 +609,28 @@ func TestLongEpisodeNamesWidenAndShowOnHover(t *testing.T) {
 		t.Fatalf("hovering must show the whole name in a tooltip: %q", tt.Texts())
 	}
 }
+
+// The embedded logo decodes, and shows in the sidebar and on the welcome
+// screen in place of the old drawn mark.
+func TestLogoShows(t *testing.T) {
+	bmp := logo()
+	if bmp == nil {
+		t.Fatal("the embedded logo must decode")
+	}
+	if w, h := bmp.Size(); w != 128 || h != 128 {
+		t.Fatalf("logo %dx%d", w, h)
+	}
+	a := New()
+	a.settingsPath = ""
+	tt := ui.NewTester(a.View, 1200, 800)
+	if _, ok := tt.Access("QuickBo"); !ok {
+		t.Fatal("the welcome screen must show the logo")
+	}
+	if dir := os.Getenv("QUICKBO_SHOT_DIR"); dir != "" {
+		savePNG(t, filepath.Join(dir, "welcome.png"), tt.Image())
+		a.catalog = &source.Catalog{Sites: []source.Source{cmsFake{}}}
+		a.screen, a.sideSel, a.lastSide = screenHome, "home", "home"
+		tt.Frame()
+		savePNG(t, filepath.Join(dir, "home.png"), tt.Image())
+	}
+}

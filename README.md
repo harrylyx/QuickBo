@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="icon/icon.png" width="128" height="128" alt="QuickBo" />
+</p>
+
 <h1 align="center">QuickBo</h1>
 
 <p align="center">

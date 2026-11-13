@@ -126,7 +126,10 @@ func (a *App) viewWelcome(c *ui.Context, th *ui.Theme) {
 					ui.Box(c).Width(18).Height(2).Radius(1).Background(th.Accent)
 					ui.Text(c, "TVBox / FongMi 播放器").FontSize(fontCaption).TextColor(th.TextMuted)
 				})
-				ui.Text(c, "QuickBo").FontSize(60).Bold()
+				ui.Row(c).Gap(18).AlignItems(ui.Center).Children(func() {
+					logoMark(c, th, 72)
+					ui.Text(c, "QuickBo").FontSize(60).Bold()
+				})
 				ui.Text(c, "添加订阅，开始播放。").FontSize(fontHeadline)
 				ui.Text(c, "不内置任何片源。把你自己的配置 URL 或本地 JSON 加进来，再浏览、搜索和播放。JSON / XML CMS、一部分 JS（drpy）和 XBPQ 规则可以直接用。JAR/DEX 爬虫会列出来，但本版不执行 jar。").TextColor(th.TextMuted).Wrap()
 				if a.loading {
@@ -409,11 +412,7 @@ func (a *App) viewSidebar(c *ui.Context, th *ui.Theme) {
 	col := ui.Themed(c, sidebarTheme(th, ink)).Width(sideWidth).FillHeight().Background(ink).Padding(20, 12, 16, 12).Gap(18)
 	col.Children(func() {
 		ui.Row(c).Gap(10).AlignItems(ui.Center).Padding(2, 8, 0, 8).Children(func() {
-			ui.Column(c).Size(30, 30).Radius(9).Center().
-				LinearGradient(ui.LinearGradient{From: th.Accent.MixOklab(ui.Hex("#ffffff"), 0.18), To: th.Accent.MixOklab(ui.Hex("#000000"), 0.2), Angle: 160, Oklab: true}).
-				Shadow(0, 4, 12, -2, th.Accent.Alpha(0.45)).Children(func() {
-				ui.Icon(c, iconPlay).Size(12, 12).TextColor(th.AccentText)
-			})
+			logoMark(c, th, 30)
 			ui.Text(c, "QuickBo").FontSize(fontTitle).FontWeight(weightTitle)
 		})
 		side := ui.Sidebar(c, &a.sideSel, func() {
