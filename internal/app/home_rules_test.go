@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -105,7 +106,7 @@ func TestRuleScreenListsEditableRows(t *testing.T) {
 	a.screen = screenRules
 	a.sideSel = "rules"
 	tt := ui.NewTester(a.View, 1200, 800)
-	for _, text := range []string{"首页分类", "添加", "上移", "下移"} {
+	for _, text := range []string{"首页分类", "添加", "拖动调整顺序", "删除"} {
 		if !tt.HasText(text) {
 			t.Fatalf("missing %s in %q", text, tt.Texts())
 		}
@@ -277,5 +278,66 @@ func TestRuleRenameChangesHome(t *testing.T) {
 	}
 	if len(a.home) != 1 || a.home[0].Name != "大片" {
 		t.Fatalf("home %v", laneNames(a.home))
+	}
+}
+
+func TestMoveRuleToCarriesDrafts(t *testing.T) {
+	a := New()
+	a.settingsPath = ""
+	a.homeRules = []homeRule{{ID: "a", Name: "甲"}, {ID: "b", Name: "乙"}, {ID: "c", Name: "丙"}, {ID: "d", Name: "丁"}}
+	a.resetRuleEdits()
+	a.ruleNames[0] = "甲改" // typed, not saved
+	a.moveRuleTo(0, 2)
+	ids := func() (out []string) {
+		for _, r := range a.homeRules {
+			out = append(out, r.ID)
+		}
+		return
+	}
+	if got := ids(); !slices.Equal(got, []string{"b", "c", "a", "d"}) {
+		t.Fatalf("down: %v", got)
+	}
+	if !slices.Equal(a.ruleNames, []string{"乙", "丙", "甲改", "丁"}) {
+		t.Fatalf("the draft must move with its row: %v", a.ruleNames)
+	}
+	a.moveRuleTo(3, 0)
+	if got := ids(); !slices.Equal(got, []string{"d", "b", "c", "a"}) || !a.rulesDirty {
+		t.Fatalf("up: %v dirty %v", got, a.rulesDirty)
+	}
+}
+
+// Dragging a row's handle down past two rows drops it there.
+func TestDragRuleHandleReorders(t *testing.T) {
+	a := New()
+	a.settingsPath = ""
+	a.catalog = &source.Catalog{}
+	a.homeRules = []homeRule{{ID: "a", Name: "甲行"}, {ID: "b", Name: "乙行"}, {ID: "c", Name: "丙行"}, {ID: "d", Name: "丁行"}}
+	a.resetRuleEdits()
+	a.goManage(screenRules)
+	tt := ui.NewTester(a.View, 1200, 900)
+	tt.Frame()
+	grip, ok := tt.Find("拖动调整顺序") // the first row's handle
+	if !ok || a.rulePitch <= 0 {
+		t.Fatalf("no handle or row pitch %v: %q", a.rulePitch, tt.Texts())
+	}
+	x, y := grip.X+grip.W/2, grip.Y+grip.H/2
+	down := 2 * a.rulePitch
+	tt.Press(x, y)
+	for step := float32(1); step <= 10; step++ {
+		tt.Move(x, y+down*step/10)
+		tt.Frame()
+	}
+	if a.ruleDragID != "a" {
+		t.Fatalf("dragging the handle must lift the row, got %q", a.ruleDragID)
+	}
+	tt.Release(x, y+down)
+	tt.Frame()
+	tt.Frame()
+	var got []string
+	for _, r := range a.homeRules {
+		got = append(got, r.ID)
+	}
+	if !slices.Equal(got, []string{"b", "c", "a", "d"}) || a.ruleDragID != "" {
+		t.Fatalf("order %v, drag %q", got, a.ruleDragID)
 	}
 }

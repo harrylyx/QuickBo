@@ -43,14 +43,17 @@ func TestMorePageBackReturnsFromDetail(t *testing.T) {
 	a.settingsPath = ""
 	a.screen = screenMore
 	a.moreRow = homeLane{Key: "movie", Name: "电影"}
-	a.openItem("movie", model.Item{ID: "1", Title: "某片"})
-	if !a.fromMore {
-		t.Fatal("opening from the aggregate page must be remembered")
+	a.catalog = &source.Catalog{Sites: []source.Source{cmsFake{}}}
+	a.sideSel = "home"
+	a.openItem("c", model.Item{ID: "1", Title: "某片"})
+	waitDetail(t, a)
+	if a.detailFrom != screenMore {
+		t.Fatalf("opening from the aggregate page must be remembered: %q", a.detailFrom)
 	}
 	a.screen = screenDetail
 	a.back()
-	if a.screen != screenMore || a.fromMore {
-		t.Fatalf("screen %q fromMore %v", a.screen, a.fromMore)
+	if a.screen != screenMore {
+		t.Fatalf("screen %q", a.screen)
 	}
 }
 

@@ -25,6 +25,8 @@ var (
 	mpvTerminateDestroy  func(h unsafe.Pointer)
 	mpvSetOptionString   func(h unsafe.Pointer, name, value string) int32
 	mpvSetPropertyString func(h unsafe.Pointer, name, value string) int32
+	mpvGetPropertyString func(h unsafe.Pointer, name string) unsafe.Pointer
+	mpvFree              func(p unsafe.Pointer)
 	mpvCommand           func(h unsafe.Pointer, args unsafe.Pointer) int32
 	mpvCommandAsync      func(h unsafe.Pointer, userdata uint64, args unsafe.Pointer) int32
 	mpvObserveProperty   func(h unsafe.Pointer, userdata uint64, name string, format int32) int32
@@ -141,6 +143,8 @@ func load() (string, error) {
 		{&mpvTerminateDestroy, "mpv_terminate_destroy"},
 		{&mpvSetOptionString, "mpv_set_option_string"},
 		{&mpvSetPropertyString, "mpv_set_property_string"},
+		{&mpvGetPropertyString, "mpv_get_property_string"},
+		{&mpvFree, "mpv_free"},
 		{&mpvCommand, "mpv_command"},
 		{&mpvCommandAsync, "mpv_command_async"},
 		{&mpvObserveProperty, "mpv_observe_property"},

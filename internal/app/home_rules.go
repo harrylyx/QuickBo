@@ -268,23 +268,39 @@ func (a *App) commitRule(i int) {
 	a.rulesDirty = true
 }
 
+// moveRule moves row i one place up (dir -1) or down (dir 1).
 func (a *App) moveRule(i, dir int) {
-	j := i + dir
-	if i < 0 || j < 0 || i >= len(a.homeRules) || j >= len(a.homeRules) {
+	a.moveRuleTo(i, i+dir)
+}
+
+// moveRuleTo moves row from to index to, carrying its drafts along.
+func (a *App) moveRuleTo(from, to int) {
+	n := len(a.homeRules)
+	if from < 0 || from >= n || to < 0 || to >= n || from == to {
 		return
 	}
-	a.commitRule(i)
-	a.commitRule(j)
-	a.homeRules[i], a.homeRules[j] = a.homeRules[j], a.homeRules[i]
-	a.ruleNames[i], a.ruleNames[j] = a.ruleNames[j], a.ruleNames[i]
-	a.ruleWords[i], a.ruleWords[j] = a.ruleWords[j], a.ruleWords[i]
-	for k := 0; k < 2; k++ {
-		x, y := i*2+k, j*2+k
-		if x < len(a.ruleFocus) && y < len(a.ruleFocus) {
-			a.ruleFocus[x], a.ruleFocus[y] = a.ruleFocus[y], a.ruleFocus[x]
-		}
+	a.bindRuleEdits()
+	a.homeRules = moveItem(a.homeRules, from, to)
+	a.ruleNames = moveItem(a.ruleNames, from, to)
+	a.ruleWords = moveItem(a.ruleWords, from, to)
+	// A dragged row has no field focused; clear the focus marks rather than
+	// shuffle them.
+	for k := range a.ruleFocus {
+		a.ruleFocus[k] = false
 	}
 	a.rulesDirty = true
+}
+
+// moveItem moves s[from] to index to, shifting the items between.
+func moveItem[T any](s []T, from, to int) []T {
+	v := s[from]
+	if from < to {
+		copy(s[from:to], s[from+1:to+1])
+	} else {
+		copy(s[to+1:from+1], s[to:from])
+	}
+	s[to] = v
+	return s
 }
 
 func (a *App) deleteRule(i int) {

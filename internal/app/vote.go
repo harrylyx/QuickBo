@@ -465,6 +465,7 @@ func (a *App) openTitle(key string) {
 	if len(hits) == 0 {
 		return
 	}
+	a.noteDetailFrom()
 	a.screen = screenDetail
 	a.detailTitle = hits[0].Title
 	a.detail = nil

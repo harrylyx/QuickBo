@@ -181,9 +181,6 @@ func (a *App) heroStep(delta, n int) {
 // openItem opens a card's title: the aggregated one across sources for
 // home rows, or the source's own detail.
 func (a *App) openItem(siteKey string, item model.Item) {
-	// Remember whether the title was opened from the aggregate page, so back()
-	// returns there with its rows and scroll position intact.
-	a.fromMore = a.screen == screenMore
 	if strings.HasPrefix(item.ID, titlePrefix) {
 		a.openTitle(strings.TrimPrefix(item.ID, titlePrefix))
 		return

@@ -3,8 +3,12 @@ package mpvlib
 import (
 	"context"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/harrylyx/QuickBo/internal/player"
 )
 
 // TestSmoke plays mpv's test pattern through the real libmpv. It needs libmpv
@@ -104,6 +108,29 @@ func TestSmoke(t *testing.T) {
 	time.Sleep(300 * time.Millisecond)
 	if img := p.TakeFrame(); img == nil || img.Rect.Dx() != 320 {
 		t.Fatalf("no re-render at the new size while paused: %v", img)
+	}
+
+	// The controls the player panel uses: properties both ways, the track
+	// list, and a screenshot.
+	if err := p.SetProp("video-aspect-override", "4:3"); err != nil {
+		t.Fatal(err)
+	}
+	if v, err := p.Prop("video-aspect-override"); err != nil || !strings.HasPrefix(v, "1.33") && v != "4:3" {
+		t.Fatalf("aspect read back %q %v", v, err)
+	}
+	if _, err := p.Prop("no-such-property"); err == nil {
+		t.Fatal("an unknown property must fail")
+	}
+	tracks := player.Tracks(p)
+	if len(tracks) == 0 || tracks[0].Kind != "video" {
+		t.Fatalf("tracks %+v", tracks)
+	}
+	shot := filepath.Join(t.TempDir(), "shot.png")
+	if err := p.Command("screenshot-to-file", shot, "subtitles"); err != nil {
+		t.Fatal(err)
+	}
+	if st, err := os.Stat(shot); err != nil || st.Size() == 0 {
+		t.Fatalf("screenshot: %v", err)
 	}
 
 	// Reload on the same player, then close.

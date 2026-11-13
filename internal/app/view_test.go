@@ -491,7 +491,9 @@ func TestManagePageTabs(t *testing.T) {
 	if a.screen != screenSubs || a.sideSel != "manage" {
 		t.Fatalf("screen %q side %q", a.screen, a.sideSel)
 	}
-	for label, want := range map[string]string{"黑名单 0": screenBlacklist, "片源 0": screenSources} {
+	// In order: the last tab clicked is the one that must come back.
+	for _, tab := range [][2]string{{"黑名单 0", screenBlacklist}, {"片源 0", screenSources}} {
+		label, want := tab[0], tab[1]
 		if err := tt.Click(label); err != nil {
 			t.Fatalf("%s: %v (%q)", label, err, tt.Texts())
 		}

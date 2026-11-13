@@ -280,6 +280,7 @@ func (a *App) prepareHistory(w watchItem) {
 	a.linePick = 0
 	a.detail = &model.Detail{ID: w.VodID, Title: w.Title, Pic: w.Pic}
 	a.detailTitle = w.Title
+	a.resumeEpisode = w.Episode
 }
 
 func (a *App) rememberCurrent(raw string) {

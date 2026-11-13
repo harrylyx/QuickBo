@@ -80,7 +80,6 @@ func (a *App) openMore(lane homeLane) {
 	a.moreCursors = nil
 	a.moreLoading = true
 	a.moreAppending = false
-	a.fromMore = false
 	a.browseScroll.Y = 0
 	sites := append([]source.Source(nil), a.catalog.Sites...)
 	rules := cloneRules(a.activeRules())

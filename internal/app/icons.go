@@ -32,5 +32,8 @@ var (
 	iconRefresh      = svg(`<path d="M12 4a8 8 0 0 1 7.3 4.7l-1.9.8A6 6 0 1 0 18 12h2a8 8 0 1 1-8-8zm1 3v5l4 2-.8 1.6L11 13V7z"/>`)
 	iconExternal     = svg(`<path d="M13 4h7v7h-2V7.4l-7.3 7.3-1.4-1.4L16.6 6H13zM5 6h5v2H6v10h10v-4h2v6H4V6z"/>`)
 	iconUp           = svg(`<path d="m12 7 6 6-1.4 1.4L12 9.8l-4.6 4.6L6 13z"/>`)
+	iconPip          = svg(`<path d="M3 5h18a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zm1 2v10h16V7zm8 4h7v5h-7z"/>`)
+	iconSliders      = svg(`<path d="M4 6h9v2H4zm13 0h3v2h-3zm-3-2h2v6h-2zM4 16h3v2H4zm7 0h9v2h-9zm-3-2h2v6H8zm-4-3h12v2H4zm16 0v2h-1v-2z"/>`)
+	iconGrip         = svg(`<path d="M9 5.5a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zm6 0a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zm-6 5a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zm6 0a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zm-6 5a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zm6 0a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3z"/>`)
 	iconDown         = svg(`<path d="m12 17-6-6 1.4-1.4 4.6 4.6 4.6-4.6L18 11z"/>`)
 )

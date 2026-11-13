@@ -3,16 +3,16 @@ package app
 import (
 	"fmt"
 	"image"
+	"math"
 	"strings"
 	"time"
 
 	"github.com/egoist/mygo/ui"
-	"github.com/harrylyx/QuickBo/internal/model"
+
 	"github.com/harrylyx/QuickBo/internal/player"
 )
 
 // rateList is the playback speed cycle, toggled by the rate button.
-var rateList = []float64{0.5, 0.75, 1, 1.25, 1.5, 2, 3}
 
 // spaceBoostDelay is how long space must be held before it turns into a
 // temporary 2× boost instead of a pause/play toggle on release.
@@ -24,10 +24,12 @@ const bufferingShowDelay = 350 * time.Millisecond
 
 func (a *App) playerKeys(c *ui.Context) {
 	if a.screen != screenPlay && a.screen != screenLive {
-		// Leaving the player ends the app window's fullscreen.
+		// Leaving the player ends the app window's fullscreen, and the
+		// floating window.
 		if a.fullscreen {
 			a.setFullscreen(false)
 		}
+		a.exitPip()
 		return
 	}
 	if a.player == nil {
@@ -48,15 +50,22 @@ func (a *App) playerKeys(c *ui.Context) {
 	} else {
 		a.fullscreen = a.player.Fullscreen()
 	}
+	// On the play screen and in the floating window the focused stage takes
+	// space itself (playerInput), to tell a tap from a hold. A Shortcut for
+	// space claims the key for the window, and the stage would then never
+	// see it go down: register it only where no stage takes it (live).
+	spaceHere := a.screen != screenPlay && !a.px.pip
 	switch {
-	case c.Shortcut(0, ui.KeySpace):
-		// Live/embedded fallback: no focused element consumes space, so it
-		// toggles play here. In the VOD view the stage's HandleInput takes it.
+	case spaceHere && c.Shortcut(0, ui.KeySpace):
 		a.togglePlay()
 	case c.Shortcut(0, ui.KeyLeft):
 		a.seekBy(-10)
 	case c.Shortcut(0, ui.KeyRight):
 		a.seekBy(10)
+	case c.Shortcut(ui.Shift, ui.KeyLeft):
+		a.seekBy(-60)
+	case c.Shortcut(ui.Shift, ui.KeyRight):
+		a.seekBy(60)
 	case c.Shortcut(0, ui.KeyUp):
 		a.nudgeVolume(0.08)
 	case c.Shortcut(0, ui.KeyDown):
@@ -64,13 +73,44 @@ func (a *App) playerKeys(c *ui.Context) {
 	case c.Shortcut(0, ui.KeyF):
 		a.toggleFull()
 	case c.Shortcut(0, ui.KeyEscape):
-		if a.fullscreen {
+		switch {
+		case a.px.keys:
+			a.px.keys = false
+		case a.px.panel:
+			a.px.panel = false
+		case a.px.pip:
+			a.exitPip()
+		case a.fullscreen:
 			a.setFullscreen(false)
-			return
-		}
-		if a.screen == screenPlay {
+		case a.screen == screenPlay:
 			a.back()
 		}
+		return
+	case !a.playerOwnsKeys():
+		// The live view keeps a filter field next to the picture: letters
+		// typed there must not drive the player.
+	case c.Shortcut(0, ui.KeyM):
+		a.toggleMute()
+	case c.Shortcut(0, ui.KeyBracketLeft):
+		a.stepRate(-1)
+	case c.Shortcut(0, ui.KeyBracketRight):
+		a.stepRate(1)
+	case c.Shortcut(0, ui.KeyBackslash):
+		a.setRate(1)
+	case c.Shortcut(0, ui.KeyN), c.Shortcut(0, ui.KeyPageDown):
+		if !a.fromLive {
+			a.playRelative(1)
+		}
+	case c.Shortcut(0, ui.KeyPageUp):
+		if !a.fromLive {
+			a.playRelative(-1)
+		}
+	case c.Shortcut(0, ui.KeyP):
+		a.togglePip()
+	case c.Shortcut(0, ui.KeyS):
+		a.screenshot()
+	case c.Shortcut(ui.Shift, ui.KeySlash), c.Shortcut(0, ui.KeySlash):
+		a.px.keys = !a.px.keys
 	}
 	if a.player != nil {
 		if a.resumeAt > 0 && a.player.Ready() {
@@ -80,13 +120,12 @@ func (a *App) playerKeys(c *ui.Context) {
 		// Holding space past spaceBoostDelay turns it into a temporary 2× boost;
 		// release restores the chosen rate (see playerInput).
 		if !a.spaceDownAt.IsZero() && !a.spaceBoosted && time.Since(a.spaceDownAt) > spaceBoostDelay {
-			a.spaceBoosted = true
-			a.player.SetRate(2)
-			a.player.Play()
+			a.startBoost()
 		}
 		if a.player.Playing() {
 			a.noteProgress()
 		}
+		a.bingeTick()
 		// Video frames repaint only the video element (paintVideo), not the
 		// view. Keep a slow frame loop alive while playing so the progress and
 		// buffer bars move, and while space is held so the boost can kick in.
@@ -123,6 +162,11 @@ func (a *App) seekBy(sec float64) {
 	a.player.Seek(next)
 	a.noteProgress()
 	a.armControls()
+	verb := "快进"
+	if sec < 0 {
+		verb = "后退"
+	}
+	a.notify(fmt.Sprintf("%s %.0f 秒  ·  %s", verb, math.Abs(sec), clock(next.Seconds())))
 }
 
 func (a *App) nudgeVolume(d float64) {
@@ -140,14 +184,21 @@ func (a *App) nudgeVolume(d float64) {
 	}
 	a.saveSettings()
 	a.armControls()
+	a.notify(fmt.Sprintf("音量 %.0f%%", v*100))
 }
 
 func (a *App) toggleMute() {
 	if a.player == nil {
 		return
 	}
-	a.player.SetMuted(!a.player.Muted())
+	muted := !a.player.Muted()
+	a.player.SetMuted(muted)
 	a.armControls()
+	if muted {
+		a.notify("已静音")
+	} else {
+		a.notify(fmt.Sprintf("音量 %.0f%%", a.volume*100))
+	}
 }
 
 func (a *App) toggleFull() {
@@ -215,6 +266,7 @@ func (a *App) setRate(r float64) {
 		a.player.SetRate(r)
 	}
 	a.armControls()
+	a.notify("倍速 " + trimRate(r))
 }
 
 // cycleRate steps through rateList, wrapping around, so the rate button is a
@@ -232,12 +284,38 @@ func (a *App) cycleRate() {
 // playerInput takes the space key while the stage has focus, so a short press
 // pauses on release and a hold becomes a temporary 2× boost (see playerKeys).
 func (a *App) playerInput(ev ui.InputEvent) bool {
-	if a.player == nil || ev.Key != ui.KeySpace {
+	if a.player == nil {
 		return false
 	}
+	if ev.Kind == ui.InputScroll {
+		// The wheel over the picture sets the volume, as in most players.
+		// A trackpad sends many small steps; a wheel a few large ones.
+		if d := -ev.DY / 400; d != 0 && !a.px.panel && !a.showDrawer {
+			a.nudgeVolume(float64(max(-0.1, min(0.1, d))))
+			return true
+		}
+		return false
+	}
+	switch ev.Key {
+	case ui.KeySpace:
+		return a.spaceKey(ev)
+	case ui.KeyB:
+		return a.boostKey(ev)
+	}
+	return false
+}
+
+// spaceKey: a tap pauses or plays on release, a hold plays at 2× until let
+// go. The hold shows by the keyboard's auto-repeat, or spaceBoostDelay.
+func (a *App) spaceKey(ev ui.InputEvent) bool {
 	switch ev.Kind {
 	case ui.InputKeyDown:
 		if ev.Repeat {
+			// The keyboard repeating the key is the system saying it is
+			// held: boost now rather than wait for the timer.
+			if !a.spaceDownAt.IsZero() && !a.spaceBoosted {
+				a.startBoost()
+			}
 			return true
 		}
 		a.spaceDownAt = time.Now()
@@ -246,8 +324,7 @@ func (a *App) playerInput(ev ui.InputEvent) bool {
 	case ui.InputKeyUp:
 		a.spaceDownAt = time.Time{}
 		if a.spaceBoosted {
-			a.spaceBoosted = false
-			a.player.SetRate(a.rate)
+			a.stopBoost()
 		} else {
 			a.togglePlay()
 		}
@@ -256,27 +333,36 @@ func (a *App) playerInput(ev ui.InputEvent) bool {
 	return false
 }
 
-func (a *App) playRelative(delta int) {
-	if a.detail == nil {
-		return
+// boostKey: B plays at 2× for as long as it is held, at once, as it has no
+// tap to tell apart.
+func (a *App) boostKey(ev ui.InputEvent) bool {
+	if ev.Mods != 0 {
+		return false
 	}
-	var lineName string
-	var eps []model.Episode
-	for _, ln := range a.detail.Lines {
-		if ln.Name != a.playLine && a.playLine != "" {
-			continue
+	switch ev.Kind {
+	case ui.InputKeyDown:
+		if !a.spaceBoosted {
+			a.startBoost()
 		}
-		lineName = ln.Name
-		eps = append(eps, ln.Episodes...)
-		break
+		return true
+	case ui.InputKeyUp:
+		if a.spaceBoosted && a.spaceDownAt.IsZero() {
+			a.stopBoost()
+		}
+		return true
 	}
-	if lineName == "" && len(a.detail.Lines) > 0 {
-		ln := a.detail.Lines[a.linePick]
-		lineName = ln.Name
-		eps = append(eps, ln.Episodes...)
-	}
+	return false
+}
+
+func (a *App) playRelative(delta int) {
+	lineName, eps := a.episodeList()
 	next := a.playIndex + delta
-	if next < 0 || next >= len(eps) {
+	if a.playIndex < 0 || next < 0 || next >= len(eps) {
+		if delta > 0 {
+			a.notify("已经是最后一集")
+		} else {
+			a.notify("已经是第一集")
+		}
 		return
 	}
 	a.playEpisode(lineName, eps[next])
@@ -318,7 +404,7 @@ func (a *App) paintStage(c *ui.Context, th *ui.Theme, embed bool) {
 		c.After(remain + 40*time.Millisecond)
 	}
 	paused := a.player != nil && a.player.Ready() && !a.player.Playing() && !a.player.Ended()
-	show := a.showDrawer || a.player == nil || a.playLoading || paused || time.Now().Before(a.controlsUntil)
+	show := a.showDrawer || a.px.panel || a.player == nil || a.playLoading || paused || time.Now().Before(a.controlsUntil)
 	if a.player != nil && a.playErr == "" {
 		if err := a.player.Err(); err != nil {
 			a.playErr = "播放失败：" + err.Error()
@@ -342,6 +428,14 @@ func (a *App) paintStage(c *ui.Context, th *ui.Theme, embed bool) {
 	stage.Radius(radius).Clip().Background(ui.Hex("#000000")).Children(func() {
 		if vs, ok := a.player.(player.VideoSource); ok {
 			a.paintVideo(c, vs)
+			// A click on the picture plays or pauses; a double click goes
+			// fullscreen. The controls drawn over it take their own clicks.
+			hit := ui.Box(c.Key("video-hit")).Absolute().Left(0).Right(0).Top(0).Bottom(0)
+			if hit.DoubleClicked() {
+				a.toggleFull()
+			} else if hit.Clicked() && !a.showDrawer && !a.px.panel {
+				a.togglePlay()
+			}
 		} else if a.player != nil {
 			ui.Column(c).Fill().Center().Children(func() {
 				ui.Text(c, "视频在 mpv 窗口中播放").FontSize(fontCaption).TextColor(th.AccentText.Alpha(0.55))
@@ -372,8 +466,15 @@ func (a *App) paintStage(c *ui.Context, th *ui.Theme, embed bool) {
 					stateAction{label: "重试", primary: true, click: a.retryPlay})
 			})
 		}
+		a.noticeLayer(c, th)
 		if a.showDrawer {
 			a.episodeDrawer(c, th)
+		}
+		if a.px.panel {
+			a.settingsPanel(c, th)
+		}
+		if a.px.keys {
+			a.keysOverlay(c, th)
 		}
 	})
 }
@@ -451,8 +552,20 @@ func (a *App) playerChrome(c *ui.Context, th *ui.Theme) {
 			}
 			ui.Column(c).Grow(1)
 			a.rateBtn(c, th)
-			a.iconBtn(c, "eps", iconList, "选集", 44, 26, white, func() { a.showDrawer = !a.showDrawer })
-			a.iconBtn(c, "full", iconFull, "全屏", 44, 26, white, a.toggleFull)
+			if !a.fromLive && a.detail != nil && len(a.detail.Lines) > 0 {
+				a.iconBtn(c, "eps", iconList, "选集", 44, 26, white, func() {
+					a.showDrawer = !a.showDrawer
+					a.px.panel = false
+				})
+			}
+			a.iconBtn(c, "panel", iconSliders, "播放设置：字幕、画面、跳过片头片尾", 44, 24, white, func() {
+				a.px.panel = !a.px.panel
+				a.showDrawer = false
+			})
+			if a.embedded() {
+				a.iconBtn(c, "pip", iconPip, "悬浮小窗（P）", 44, 24, white, a.togglePip)
+			}
+			a.iconBtn(c, "full", iconFull, "全屏（F）", 44, 26, white, a.toggleFull)
 		})
 	})
 }
@@ -542,6 +655,23 @@ func (a *App) seekBar(c *ui.Context, th *ui.Theme) {
 			if bufFrac > 1 {
 				bufFrac = 1
 			}
+		}
+		// Dragging along the bar previews where it will land, and seeks there
+		// on release.
+		px0, _, _ := hit.PointerPosition()
+		if _, _, held := hit.Dragged(); held && dur > 0 && w > 1 {
+			a.px.seekDragging = true
+			a.px.seekDragAt = max(0, min(dur, float64(px0)/float64(w)*dur))
+			a.armControls()
+		} else if a.px.seekDragging {
+			a.px.seekDragging = false
+			if a.player != nil {
+				a.player.Seek(time.Duration(a.px.seekDragAt * float64(time.Second)))
+				a.noteProgress()
+			}
+		}
+		if a.px.seekDragging && dur > 0 {
+			frac = a.px.seekDragAt / dur
 		}
 		hit.Children(func() {
 			ui.Box(c).Absolute().Left(0).Right(0).Top(12).Height(4).Radius(2).Background(th.AccentText.Alpha(0.22))
@@ -658,4 +788,30 @@ func clock(sec float64) string {
 		return fmt.Sprintf("%d:%02d:%02d", h, m, s)
 	}
 	return fmt.Sprintf("%02d:%02d", m, s)
+}
+
+// playerOwnsKeys reports whether letter and punctuation keys belong to the
+// player: on its own screen, in fullscreen, or as the floating window.
+func (a *App) playerOwnsKeys() bool {
+	return a.screen == screenPlay || a.fullscreen || a.px.pip
+}
+
+// startBoost plays at 2× while space is held; letting go restores the
+// chosen speed (playerInput).
+func (a *App) startBoost() {
+	if a.player == nil {
+		return
+	}
+	a.spaceBoosted = true
+	a.player.SetRate(2)
+	a.player.Play()
+	a.armControls()
+}
+
+// stopBoost goes back to the chosen speed.
+func (a *App) stopBoost() {
+	a.spaceBoosted = false
+	if a.player != nil {
+		a.player.SetRate(a.rate)
+	}
 }

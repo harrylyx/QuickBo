@@ -150,9 +150,12 @@ type App struct {
 	videoShown        bool
 	spaceDownAt       time.Time
 	spaceBoosted      bool
-	bufferingSince    time.Time
-	keepScreen        bool
-	lib               *library
+	// px is the player's extra state: notices, picture-in-picture, the
+	// settings panel, binge-watching and per-title skips (player_extras.go).
+	px             playerExtras
+	bufferingSince time.Time
+	keepScreen     bool
+	lib            *library
 
 	// Subscription and source management.
 	subSort        string                // 订阅排序键：name/ref/enabled/count
@@ -194,7 +197,13 @@ type App struct {
 	moreBallots   []ballot
 	moreCursors   []moreCursor
 	moreAppending bool
-	fromMore      bool
+	// playFrom and detailFrom are the screens the player and the detail page
+	// were opened from, where back returns (backTarget).
+	playFrom   string
+	detailFrom string
+	// resumeEpisode names the episode a history entry resumes, which has no
+	// episode list to name it from.
+	resumeEpisode string
 
 	grid     ui.GridState
 	selected int
@@ -211,15 +220,24 @@ type App struct {
 	posterTries map[string]int
 	// coverLaid marks covers (per screen) that have been laid out once, so
 	// their InViewMargin answer is known (see cover).
-	coverLaid     map[string]bool
-	hidden        map[string]bool
-	homeRules     []homeRule
-	ruleNames     []string
-	ruleWords     []string
-	ruleFocus     []bool
-	ruleSeq       int
-	rulesDirty    bool
-	rulesNote     string // 分类导入导出的结果提示
+	coverLaid  map[string]bool
+	hidden     map[string]bool
+	homeRules  []homeRule
+	ruleNames  []string
+	ruleWords  []string
+	ruleFocus  []bool
+	ruleSeq    int
+	rulesDirty bool
+	rulesNote  string // 分类导入导出的结果提示
+	// Dragging a home row by its handle (view_rules.go): the row, where it
+	// started, how far it has moved, whether it was let go, the row pitch
+	// measured last frame, and the drop to settle the frame after.
+	ruleDragID    string
+	ruleDragFrom  int
+	ruleDragDY    float32
+	ruleDropped   bool
+	rulePitch     float32
+	ruleSettle    *ruleSettle
 	home          []homeLane
 	homeHits      []homeLane
 	homeSearching bool
@@ -249,6 +267,10 @@ type savedSettings struct {
 	DisabledSources []string              `json:"disabledSources,omitempty"`
 	SourceStats     map[string]sourceStat `json:"sourceStats,omitempty"`
 	HomeRules       []homeRule            `json:"homeRules,omitempty"`
+	// AutoNext plays the next episode at the end; nil means on.
+	AutoNext *bool `json:"autoNext,omitempty"`
+	// Skips are the intro and outro to skip, per title (watchTitle).
+	Skips map[string]skipRule `json:"skips,omitempty"`
 }
 
 // New returns an empty shell. No subscription is loaded until the user
@@ -258,6 +280,7 @@ func New() *App {
 		screen:        screenWelcome,
 		pb:            playback.New(),
 		volume:        1,
+		px:            playerExtras{autoNext: true},
 		savedVolume:   1,
 		appliedVolume: 1,
 		rate:          1,
@@ -380,6 +403,8 @@ func (a *App) RestoreSettings() []string {
 		a.resetRuleEdits()
 		a.noteRuleSeq()
 	}
+	a.px.autoNext = s.AutoNext == nil || *s.AutoNext
+	a.px.skips = cloneSkips(s.Skips)
 	if s.Volume != nil {
 		a.volume = *s.Volume
 		a.savedVolume = a.volume
@@ -655,6 +680,7 @@ func (a *App) openDetail(item model.Item) {
 	if src == nil {
 		return
 	}
+	a.noteDetailFrom()
 	a.screen = screenDetail
 	a.offers = nil
 	a.detail = nil
@@ -697,6 +723,8 @@ func (a *App) playEpisode(line string, ep model.Episode) {
 	if src == nil {
 		return
 	}
+	a.notePlayFrom()
+	a.resumeEpisode = ""
 	a.screen = screenPlay
 	a.playLoading = true
 	a.playErr = ""
@@ -762,6 +790,7 @@ func (a *App) startPlay(title, raw string, headers map[string]string, fromLive b
 	a.playNote = ""
 	a.playLoading = false
 	a.fromLive = fromLive
+	a.notePlayFrom()
 	a.screen = screenPlay
 	if strings.TrimSpace(raw) == "" {
 		a.playErr = "没有播放地址"
@@ -787,6 +816,8 @@ func (a *App) startPlay(title, raw string, headers map[string]string, fromLive b
 	}
 	p.SetRate(a.rate)
 	a.player = p
+	a.resetEpisodeExtras()
+	a.applyPicture()
 	a.controlsUntil = time.Now().Add(4 * time.Second)
 	a.rememberCurrent(raw)
 }
@@ -836,23 +867,61 @@ func (a *App) back() {
 			a.screen = screenLive
 			return
 		}
-		if a.detail != nil {
-			a.screen = screenDetail
-			return
+		from := a.playFrom
+		a.playFrom = ""
+		if from == screenDetail || from == "" {
+			if a.detail != nil {
+				a.screen = screenDetail
+				return
+			}
+			from = ""
 		}
-		a.screen = screenBrowse
+		a.screen = a.backTarget(from)
 	case screenDetail:
-		if a.fromMore {
-			a.fromMore = false
-			a.screen = screenMore
-			return
-		}
-		if a.sideSel == "home" || a.sideSel == "" {
-			a.screen = screenHome
-			return
-		}
-		a.screen = screenBrowse
+		from := a.detailFrom
+		a.detailFrom = ""
+		a.screen = a.backTarget(from)
 	}
+}
+
+// returnable are the screens back may return to: lists a title was opened
+// from, which keep their own state while the player or detail page shows.
+var returnable = map[string]bool{
+	screenHome: true, screenBrowse: true, screenHistory: true, screenFav: true, screenMore: true,
+}
+
+// notePlayFrom remembers where the player was opened from. Starting another
+// episode, auto-next or a retry happen on the player and keep it.
+func (a *App) notePlayFrom() {
+	if a.screen != screenPlay {
+		a.playFrom = a.screen
+	}
+}
+
+// noteDetailFrom remembers where the detail page was opened from.
+func (a *App) noteDetailFrom() {
+	if a.screen != screenDetail && a.screen != screenPlay {
+		a.detailFrom = a.screen
+	}
+}
+
+// backTarget is the screen to go back to: from when it is a list, else the
+// one the sidebar selection names.
+func (a *App) backTarget(from string) string {
+	if returnable[from] {
+		return from
+	}
+	switch {
+	case a.sideSel == "home" || a.sideSel == "":
+		return screenHome
+	case a.sideSel == "history":
+		return screenHistory
+	case a.sideSel == "fav":
+		return screenFav
+	case a.siteKey != "" && a.catalog != nil && a.catalog.Find(a.siteKey) != nil:
+		return screenBrowse
+	}
+	return screenHome
 }
 
 func (a *App) pickFile() {
@@ -1091,7 +1160,13 @@ func (a *App) post(fn func()) {
 		a.postMu.Unlock()
 		return
 	}
-	a.win.Update(fn)
+	a.win.Update(func() {
+		fn()
+		// The floating window shows the same state: redraw it too.
+		if w := a.px.pipWin; w != nil {
+			w.Invalidate()
+		}
+	})
 }
 
 func (a *App) closePlayer() {
@@ -1125,6 +1200,11 @@ func (a *App) saveSettings() {
 		DisabledSources: disabledIDs(a.disabled),
 		SourceStats:     a.statsSnapshot(),
 		HomeRules:       cloneRules(a.homeRules),
+		Skips:           cloneSkips(a.px.skips),
+	}
+	if !a.px.autoNext {
+		off := false
+		s.AutoNext = &off
 	}
 	b, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"math"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -8,11 +9,13 @@ import (
 
 func (a *App) viewRules(c *ui.Context, th *ui.Theme) {
 	a.bindRuleEdits()
+	a.applyRuleDrop()
+	defer func() { a.ruleSettle = nil }()
 	stopFrame := false
 	ui.Scroll(c).Grow(1).Children(func() {
 		ui.Column(c).Gap(16).Children(func() {
 			ui.Row(c).AlignItems(ui.Center).Gap(12).Children(func() {
-				ui.Text(c, "「最新影视」除按关键字匹配分类外，还会聚合各源首页候选，按多源共同收录、清晰度、年份排序。各行按关键字匹配片源分类名；改动先留在这里，点「保存」才写入设置并按本地缓存重算首页，不会重新联网采集。要更新首页候选和分类内容，点「重新采集」。").TextColor(th.TextMuted).Shrink(1).Wrap()
+				ui.Text(c, "按住左侧把手拖动可调整首页各行的顺序。「最新影视」除按关键字匹配分类外，还会聚合各源首页候选，按多源共同收录、清晰度、年份排序。各行按关键字匹配片源分类名；改动先留在这里，点「保存」才写入设置并按本地缓存重算首页，不会重新联网采集。要更新首页候选和分类内容，点「重新采集」。").TextColor(th.TextMuted).Shrink(1).Wrap()
 				ui.Column(c).Grow(1)
 				if a.rulesDirty {
 					ui.Text(c, "有未保存的修改").TextColor(th.Accent).SingleLine()
@@ -57,11 +60,13 @@ func (a *App) viewRules(c *ui.Context, th *ui.Theme) {
 					stateAction{label: "添加分类", primary: true, click: a.addRule})
 				return
 			}
-			for i := 0; i < len(a.homeRules); i++ {
-				if !a.ruleRow(c, th, i) {
-					return
+			ui.Column(c).Gap(ruleGap).Children(func() {
+				for i := 0; i < len(a.homeRules); i++ {
+					if !a.ruleRow(c, th, i) {
+						return
+					}
 				}
-			}
+			})
 		})
 	})
 }
@@ -72,21 +77,23 @@ func (a *App) ruleRow(c *ui.Context, th *ui.Theme, i int) bool {
 	}
 	id := a.homeRules[i].ID
 	keep := true
-	ui.Column(c.Key("rule:"+id)).FillWidth().Padding(10, 12).Radius(8).Background(th.Surface).Gap(6).Children(func() {
+	row := ui.Column(c.Key("rule:"+id)).FillWidth().Padding(10, 12).Radius(8).Background(th.Surface).Gap(6)
+	if i == 0 {
+		if b := row.LayoutBounds(); b.H > 0 {
+			a.rulePitch = b.H + ruleGap
+		}
+	}
+	row.Translate(0, a.ruleRowOffset(row, i, id))
+	if a.ruleDragID == id {
+		// Lifted: above its neighbours, with a deeper shadow.
+		row.ZIndex(10).Background(th.SurfaceHover).Shadow(0, 14, 30, -6, ui.RGBA(0, 0, 0, 0.45))
+	}
+	row.Children(func() {
 		ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(6).Children(func() {
+			a.ruleGrip(c, th, i, id)
 			name := ui.TextInput(c.Key("rule-name:"+id), &a.ruleNames[i]).Placeholder("分类名称").Width(220)
 			a.watchRule(name, i, i*2)
 			ui.Column(c).Grow(1)
-			if a.ruleIconBtn(c, th, "rule-up:"+id, iconUp, "上移", th.TextMuted).Clicked() {
-				a.moveRule(i, -1)
-				keep = false
-				return
-			}
-			if a.ruleIconBtn(c, th, "rule-down:"+id, iconDown, "下移", th.TextMuted).Clicked() {
-				a.moveRule(i, 1)
-				keep = false
-				return
-			}
 			if a.ruleIconBtn(c, th, "rule-drop:"+id, iconTrash, "删除", th.Danger).Clicked() {
 				a.deleteRule(i)
 				keep = false
@@ -121,4 +128,119 @@ func (a *App) watchRule(field ui.Element, i, focus int) {
 	if focus < len(a.ruleFocus) {
 		a.ruleFocus[focus] = field.Focused()
 	}
+}
+
+// ruleGap is the space between home rows on the 分类 page.
+const ruleGap = 8
+
+// ruleSettle is a drop to settle in the frame after it: the dropped row
+// glides from where it was let go into its new place, and the rows that
+// made room for it stay where they are drawn.
+type ruleSettle struct {
+	id       string
+	residual float32
+}
+
+// ruleGrip is a row's drag handle. Dragging it lifts the row and moves it
+// with the pointer while the others slide aside; letting go drops it there.
+// Its menu moves the row without dragging.
+func (a *App) ruleGrip(c *ui.Context, th *ui.Theme, i int, id string) {
+	grip := ui.Column(c.Key("rule-grip:"+id)).Size(26, 30).Radius(6).Center().
+		Cursor(ui.CursorGrab).Tooltip("拖动调整顺序，右键可移到最前或最后").Label("拖动调整顺序")
+	fg := th.TextMuted
+	switch {
+	case a.ruleDragID == id:
+		fg = th.Accent
+		grip.Cursor(ui.CursorGrabbing)
+	case grip.Hovered():
+		grip.Background(th.SurfaceHover)
+		fg = th.Text
+	}
+	grip.Children(func() {
+		ui.Icon(c, iconGrip).Size(16, 16).TextColor(fg)
+	})
+	grip.ContextMenu(func(menu *ui.Menu) {
+		last := len(a.homeRules) - 1
+		if menu.Item("移到最前").Disabled(i == 0).Chosen() {
+			a.moveRuleTo(i, 0)
+		}
+		if menu.Item("上移").Disabled(i == 0).Chosen() {
+			a.moveRuleTo(i, i-1)
+		}
+		if menu.Item("下移").Disabled(i == last).Chosen() {
+			a.moveRuleTo(i, i+1)
+		}
+		if menu.Item("移到最后").Disabled(i == last).Chosen() {
+			a.moveRuleTo(i, last)
+		}
+	})
+	// Dragged's third value says the pointer still holds the handle; Pressed
+	// drops out for the frame the pointer moves in, so it cannot tell a
+	// let-go.
+	_, dy, held := grip.Dragged()
+	if held && dy != 0 {
+		if a.ruleDragID == "" {
+			a.ruleDragID, a.ruleDragFrom, a.ruleDragDY = id, i, 0
+		}
+		if a.ruleDragID == id {
+			a.ruleDragDY += dy
+		}
+	}
+	if a.ruleDragID == id && !held {
+		// Let go (or the press was canceled): drop at the top of the next
+		// frame, so this one still builds every row where it was.
+		a.ruleDropped = true
+		c.Invalidate()
+	}
+}
+
+// ruleDragTarget is the index the dragged row would drop at now.
+func (a *App) ruleDragTarget() int {
+	p := a.rulePitch
+	if p <= 0 {
+		p = 96
+	}
+	to := a.ruleDragFrom + int(math.Round(float64(a.ruleDragDY/p)))
+	return max(0, min(len(a.homeRules)-1, to))
+}
+
+// applyRuleDrop moves a dropped row into place and leaves the offsets to
+// settle in this build (ruleRowOffset).
+func (a *App) applyRuleDrop() {
+	if !a.ruleDropped {
+		return
+	}
+	from, to := a.ruleDragFrom, a.ruleDragTarget()
+	a.ruleSettle = &ruleSettle{id: a.ruleDragID, residual: a.ruleDragDY - float32(to-from)*a.rulePitch}
+	a.ruleDragID, a.ruleDragDY, a.ruleDropped = "", 0, false
+	a.moveRuleTo(from, to)
+}
+
+// ruleRowOffset is how far row i is drawn from its place in the layout: the
+// dragged row follows the pointer, the rows between its start and where it
+// would drop slide one row over to make room, and every row springs back to
+// its place once the drag ends.
+func (a *App) ruleRowOffset(row ui.Element, i int, id string) float32 {
+	if s := a.ruleSettle; s != nil {
+		if id == s.id {
+			row.Jump("ry", s.residual)
+			return row.AnimateTo("ry", 0, ui.Snappy)
+		}
+		return row.Jump("ry", 0)
+	}
+	if a.ruleDragID == "" {
+		return row.AnimateTo("ry", 0, ui.Snappy)
+	}
+	if id == a.ruleDragID {
+		return row.Jump("ry", a.ruleDragDY)
+	}
+	from, to := a.ruleDragFrom, a.ruleDragTarget()
+	var shift float32
+	switch {
+	case from < to && i > from && i <= to:
+		shift = -a.rulePitch
+	case to < from && i >= to && i < from:
+		shift = a.rulePitch
+	}
+	return row.AnimateTo("ry", shift, ui.Snappy)
 }

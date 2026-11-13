@@ -797,10 +797,7 @@ func (a *App) viewContinue(c *ui.Context, th *ui.Theme) {
 				for _, w := range watches {
 					w := w
 					card := ui.Column(c.Key("w-" + w.Key)).Width(104).Gap(8).OnClick(func() {
-						a.resumeAt = w.Position
-						a.siteKey = w.SiteKey
-						a.playLine = w.Line
-						a.startPlay(w.Title+"  ·  "+w.Episode, w.URL, nil, false)
+						a.playHistory(w)
 					}).Cursor(ui.CursorPointer)
 					hot := card.Hovered()
 					card.Children(func() {
@@ -1523,7 +1520,7 @@ func currentEpisodeName(a *App) string {
 			return n
 		}
 	}
-	return ""
+	return a.resumeEpisode
 }
 
 func prefix(p, v string) string {

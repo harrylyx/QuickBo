@@ -61,6 +61,33 @@ type Player struct {
 
 var _ player.Player = (*Player)(nil)
 var _ player.VideoSource = (*Player)(nil)
+var _ player.Controls = (*Player)(nil)
+
+// SetProp sets an mpv property from its string form.
+func (p *Player) SetProp(name, value string) error { return p.setProp(name, value) }
+
+// Prop reads an mpv property in its string form.
+func (p *Player) Prop(name string) (string, error) {
+	var out string
+	err := p.withHandle(func(h unsafe.Pointer) error {
+		ptr := mpvGetPropertyString(h, name)
+		if ptr == nil {
+			return errors.New("mpv 没有属性 " + name)
+		}
+		out = goString((*byte)(ptr))
+		mpvFree(ptr)
+		return nil
+	})
+	return out, err
+}
+
+// Command runs an mpv command, as screenshot-to-file or sub-add.
+func (p *Player) Command(args ...string) error {
+	if len(args) == 0 {
+		return errors.New("mpv: 空命令")
+	}
+	return p.withHandle(func(h unsafe.Pointer) error { return command(h, args...) })
+}
 
 // New loads libmpv (once per process) and returns an idle player.
 func New() (*Player, error) {
