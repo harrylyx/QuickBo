@@ -19,3 +19,5 @@ require (
 	github.com/google/pprof v0.0.0-20230207041349-798e818bf904 // indirect
 	golang.org/x/net v0.59.0 // indirect
 )
+
+tool github.com/egoist/mygo/cmd/mygo

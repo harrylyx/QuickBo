@@ -1,0 +1,40 @@
+# 每次推送到 main、每个 PR 都在 Linux 和 macOS 上编译并跑测试。
+# mygo 不需要 cgo，Linux 上也能编出全部平台；macOS 单独跑一遍，
+# 因为部分代码只在 macOS 上走到。
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+# 同一个 PR 的新推送会取消旧的那次运行。
+concurrency:
+  group: test-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: Linux, os: ubuntu-latest }
+          - { name: macOS, os: macos-latest }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - name: Vet
+        run: go vet ./...
+      - name: Build
+        run: CGO_ENABLED=0 go build -o /dev/null ./cmd/quickbo
+      - name: Test
+        run: go test ./...

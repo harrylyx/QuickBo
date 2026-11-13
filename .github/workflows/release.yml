@@ -1,0 +1,112 @@
+# 推送 v* 标签（如 v0.1.0）后，分平台打包并发布到 GitHub Release：
+#
+#   macOS    quickbo-<版本>-arm64.dmg / -amd64.dmg
+#   Windows  quickbo-setup-<版本>-amd64.exe / -arm64.exe（NSIS 安装程序）
+#   Linux    quickbo_<版本>_amd64.deb / _arm64.deb，
+#            quickbo-<版本>-linux-amd64.tar.gz / -arm64.tar.gz（附 install.sh）
+#
+# 打包用 go.mod 里固定的 mygo CLI（go tool mygo build），配置在 mygo.json。
+# mygo 不需要 cgo，Windows 和 Linux 都在 Ubuntu 上交叉编译；macOS 的 .app 签名
+# 和 .dmg 需要 macOS runner。目前没有开发者证书：macOS 是 ad hoc 签名，Windows
+# 未签名，README 里写了首次打开的处理办法。
+#
+# 也可以在 Actions 页手动运行（workflow_dispatch）：只打包、上传为构建产物，
+# 不发布 Release，用来检查各平台能否打包。
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write # 创建 Release 并上传安装包
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # 标签必须和 mygo.json 的 version 一致，否则安装包里的版本号会和 Release 对不上。
+      - name: Check the version
+        if: github.ref_type == 'tag'
+        run: |
+          want="v$(jq -r .version mygo.json)"
+          if [ "$GITHUB_REF_NAME" != "$want" ]; then
+            echo "::error::标签 $GITHUB_REF_NAME 和 mygo.json 的版本 $want 不一致"
+            exit 1
+          fi
+
+  build:
+    needs: check
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: macOS, os: macos-latest, platform: "darwin/arm64,darwin/amd64" }
+          - { name: Windows, os: ubuntu-latest, platform: "windows/amd64,windows/arm64" }
+          - { name: Linux, os: ubuntu-latest, platform: "linux/amd64,linux/arm64" }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: false
+      # setup-go 自带的缓存只按 runner 系统和 go.sum 区分，Windows 和 Linux 两个任务
+      # 都在 Ubuntu 上，会抢同一个缓存键；这里按任务分开。
+      - name: Find Go's caches
+        id: go-env
+        run: |
+          echo "build=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+          echo "mod=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ${{ steps.go-env.outputs.build }}
+            ${{ steps.go-env.outputs.mod }}
+          key: go-${{ matrix.name }}-${{ hashFiles('go.mod', 'go.sum') }}
+          restore-keys: go-${{ matrix.name }}-
+      - name: Install NSIS, for the Windows installers
+        if: matrix.name == 'Windows'
+        run: sudo apt-get update && sudo apt-get install -y nsis
+      - name: Build
+        run: go tool mygo build -platform "${{ matrix.platform }}"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.name }}
+          path: |
+            build/*/*.dmg
+            build/*/*-setup-*.exe
+            build/*/*.deb
+            build/*/*.tar.gz
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+      # 说明取 CHANGELOG.md 里这个版本的一节；没有的话用 GitHub 自动生成的。
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -la dist
+          awk -v v="${GITHUB_REF_NAME#v}" '
+            /^## / { if (found) exit; found = index($0, "[" v "]") > 0 || index($0, " " v) > 0; next }
+            found
+          ' CHANGELOG.md > notes.md 2>/dev/null || true
+          if [ -s notes.md ]; then notes=(--notes-file notes.md); else notes=(--generate-notes); fi
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" dist/* --verify-tag \
+              --title "QuickBo $GITHUB_REF_NAME" "${notes[@]}"
+          fi
