@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/harrylyx/QuickBo/internal/config"
@@ -348,29 +349,19 @@ func (a *App) viewSettings(c *ui.Context, th *ui.Theme) {
 	ui.Modal(c, &a.settingsOpen, func() {
 		ui.Column(c).Width(480).Gap(16).Children(func() {
 			ui.Text(c, "设置").FontSize(fontHeadline).Bold()
-			ui.Text(c, "外观偏好只影响这台设备。订阅、片源、黑名单和首页分类在侧栏「订阅与片源」中管理。").TextColor(th.TextMuted).Wrap()
+			ui.Text(c, "外观偏好只影响这台设备。订阅、片源、黑名单和首页分类在侧栏「管理」中。").TextColor(th.TextMuted).Wrap()
 
 			ui.Text(c, "外观").FontSize(fontCaption).TextColor(th.TextMuted)
 			ui.Row(c).Gap(8).Children(func() {
-				a.choice(c, th, "外观深色", "深色", !a.light, func() {
-					a.light = false
-					a.saveSettings()
-				})
-				a.choice(c, th, "外观浅色", "浅色", a.light, func() {
-					a.light = true
-					a.saveSettings()
-				})
-			})
-
-			ui.Text(c, "片源黑名单").FontSize(fontCaption).TextColor(th.TextMuted)
-			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-				note := "还没有关键字"
-				if n := len(a.blacklist); n > 0 {
-					note = fmt.Sprintf("%d 个关键字", n)
-				}
-				ui.Text(c, note+"，在「片源」页的「黑名单」里管理。").TextColor(th.TextMuted).Grow(1).Wrap()
-				if ui.Button(c, "管理黑名单").Clicked() {
-					a.openBlacklist()
+				for _, opt := range [][2]string{{appearanceSystem, "跟随系统"}, {appearanceLight, "浅色"}, {appearanceDark, "深色"}} {
+					cur := a.appearance
+					if !validAppearance(cur) {
+						cur = appearanceSystem
+					}
+					a.choice(c, th, "外观"+opt[1], opt[1], cur == opt[0], func() {
+						a.appearance = opt[0]
+						a.saveSettings()
+					})
 				}
 			})
 
@@ -428,13 +419,11 @@ func (a *App) viewSidebar(c *ui.Context, th *ui.Theme) {
 		side := ui.Sidebar(c, &a.sideSel, func() {
 			ui.SidebarSection(c, "导航", nil, func() {
 				ui.SidebarItem(c, "home", iconHome, "首页")
+				ui.SidebarItem(c, "manage", iconSliders, "管理")
 			})
 			ui.SidebarSection(c, "资料库", nil, func() {
 				ui.SidebarItem(c, "history", iconClock, "历史")
 				ui.SidebarItem(c, "fav", iconHeart, "收藏")
-			})
-			ui.SidebarSection(c, "管理", nil, func() {
-				ui.SidebarItem(c, "manage", iconGear, "订阅与片源")
 			})
 			for _, g := range a.sideGroups() {
 				g := g
@@ -731,10 +720,35 @@ func portraitHeight(winH float32) float32 {
 	return ph
 }
 
-func (a *App) episodeTracks(c *ui.Context) []ui.Track {
+// choiceTipRunes is how long a choice's label may be before it gets a
+// tooltip with the whole of it.
+const choiceTipRunes = 5
+
+// episodeCell is how wide an episode button is for names up to longest
+// runes: narrow for 第12集, wider for a variety show's dated, titled ones.
+func episodeCell(longest int) float32 {
+	switch {
+	case longest <= 5:
+		return 104
+	case longest <= 9:
+		return 160
+	}
+	return 232
+}
+
+func longestEpisode(eps []model.Episode) int {
+	n := 0
+	for _, ep := range eps {
+		n = max(n, utf8.RuneCountInString(ep.Name))
+	}
+	return n
+}
+
+func (a *App) episodeTracks(c *ui.Context, longest int) []ui.Track {
 	winW, winH := c.Size()
 	available := winW - sideWidth - pagePad*2 - portraitHeight(winH)*2/3 - 22
-	const gap, cell float32 = 8, 104
+	const gap float32 = 8
+	cell := episodeCell(longest)
 	cols := int((available + gap) / (cell + gap))
 	if cols < 2 {
 		cols = 2
@@ -1083,7 +1097,7 @@ func (a *App) viewDetail(c *ui.Context, th *ui.Theme) {
 				ui.Text(c, "剧集").FontSize(fontTitle).Bold()
 				ui.Text(c, fmt.Sprintf("%d 集", len(line.Episodes))).FontSize(fontCaption).TextColor(th.TextMuted)
 			})
-			tracks := a.episodeTracks(c)
+			tracks := a.episodeTracks(c, longestEpisode(line.Episodes))
 			ui.ScrollBoth(c).MaxHeight(260).Children(func() {
 				ui.Grid(c).ColumnTracks(tracks...).Gap(8).Children(func() {
 					for _, ep := range line.Episodes {
@@ -1289,6 +1303,11 @@ func (a *App) viewIndex(c *ui.Context, th *ui.Theme) {
 // than filled, leaving the filled look to the screen's primary action.
 func (a *App) choice(c *ui.Context, th *ui.Theme, key, label string, on bool, click func()) {
 	p := ui.Column(c.Key(key)).Padding(9, 14).Radius(10).OnClick(click).Cursor(ui.CursorPointer)
+	// A long label, as a variety show's episode, may be cut to fit: the
+	// pointer resting on it shows it whole.
+	if utf8.RuneCountInString(label) > choiceTipRunes {
+		p.Tooltip(label)
+	}
 	bg, fg := selectionColors(th, on, p.Hovered())
 	edge := th.Border
 	if on {

@@ -148,7 +148,33 @@ func sidebarTheme(th *ui.Theme, bg ui.Color) *ui.Theme {
 	return &t
 }
 
+// Appearances the settings offer.
+const (
+	appearanceSystem = "system"
+	appearanceLight  = "light"
+	appearanceDark   = "dark"
+)
+
+func validAppearance(s string) bool {
+	return s == appearanceSystem || s == appearanceLight || s == appearanceDark
+}
+
+// resolveLight tells whether the chosen appearance shows light, given
+// whether the system is dark. No choice yet follows the system.
+func resolveLight(appearance string, systemDark bool) bool {
+	switch appearance {
+	case appearanceLight:
+		return true
+	case appearanceDark:
+		return false
+	}
+	return !systemDark
+}
+
 func (a *App) useTheme(c *ui.Context) *ui.Theme {
+	// Before SetTheme, the frame's theme is the toolkit's default, which
+	// follows the system's appearance (and its changes).
+	a.light = resolveLight(a.appearance, c.Theme().Dark)
 	t := cinemaDark()
 	if a.light {
 		t = cinemaLight()

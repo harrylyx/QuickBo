@@ -8,12 +8,6 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// openBlacklist shows the blacklist tab of the management page.
-func (a *App) openBlacklist() {
-	a.settingsOpen = false
-	a.goManage(screenBlacklist)
-}
-
 // filteredBlacklist is the blacklist narrowed by the pane's search field,
 // matching either the keyword or a source it hides.
 func (a *App) filteredBlacklist() []string {

@@ -62,7 +62,10 @@ var shotTitles = []string{"长夜将明", "雾港", "北方的海", "失物招�
 func shotApp(light bool) *App {
 	a := New()
 	a.settingsPath = ""
-	a.light = light
+	a.appearance = appearanceDark
+	if light {
+		a.appearance = appearanceLight
+	}
 	a.lib = &library{}
 	a.catalog = &source.Catalog{Sites: []source.Source{cmsFake{}, otherFake{}}}
 	a.allSites = a.catalog.Sites

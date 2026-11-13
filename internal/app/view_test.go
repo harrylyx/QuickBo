@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -484,7 +486,7 @@ func TestManagePageTabs(t *testing.T) {
 	a.catalog = &source.Catalog{Sites: []source.Source{cmsFake{}}}
 	a.screen, a.sideSel, a.lastSide = screenHome, "home", "home"
 	tt := ui.NewTester(a.View, 1200, 800)
-	if err := tt.Click("订阅与片源"); err != nil {
+	if err := tt.Click("管理"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Frame()
@@ -508,5 +510,102 @@ func TestManagePageTabs(t *testing.T) {
 	a.onSide()
 	if a.screen != screenSources {
 		t.Fatalf("manage must reopen the last tab, got %q", a.screen)
+	}
+}
+
+// The appearance follows the system unless light or dark is chosen; the
+// choice persists, and settings from before the option keep their look.
+func TestAppearanceFollowsSystemOrChoice(t *testing.T) {
+	if !resolveLight("", false) || resolveLight("", true) || !resolveLight(appearanceSystem, false) {
+		t.Fatal("no choice and 跟随系统 follow the system")
+	}
+	if !resolveLight(appearanceLight, true) || resolveLight(appearanceDark, false) {
+		t.Fatal("a choice overrides the system")
+	}
+
+	a := New()
+	a.settingsPath = ""
+	a.catalog = &source.Catalog{}
+	a.screen, a.sideSel, a.lastSide = screenHome, "home", "home"
+	tt := ui.NewTester(a.View, 1200, 800)
+	tt.SetDark(true)
+	if a.light {
+		t.Fatal("a dark system must show dark by default")
+	}
+	tt.SetDark(false)
+	if !a.light {
+		t.Fatal("a light system must show light by default")
+	}
+	a.openSettings()
+	tt.Frame()
+	for _, want := range []string{"跟随系统", "浅色", "深色"} {
+		if !tt.HasText(want) {
+			t.Fatalf("missing %s: %q", want, tt.Texts())
+		}
+	}
+	if tt.HasText("管理黑名单") {
+		t.Fatal("the blacklist must be gone from the settings")
+	}
+	if err := tt.Click("深色"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if a.appearance != appearanceDark || a.light {
+		t.Fatalf("dark chosen: %q light %v", a.appearance, a.light)
+	}
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+	for in, want := range map[string]string{
+		`{"appearance":"system"}`: appearanceSystem,
+		`{"light":true}`:          appearanceLight,
+		`{"volume":0.5}`:          appearanceDark, // saved before the option: it was dark
+	} {
+		if err := os.WriteFile(path, []byte(in), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		b := New()
+		b.settingsPath = path
+		b.RestoreSettings()
+		if b.appearance != want {
+			t.Errorf("%s restored %q, want %q", in, b.appearance, want)
+		}
+	}
+	if New().appearance != "" {
+		t.Fatal("a fresh install follows the system")
+	}
+}
+
+// Long episode names get wider buttons and show whole on hover.
+func TestLongEpisodeNamesWidenAndShowOnHover(t *testing.T) {
+	if episodeCell(longestEpisode([]model.Episode{{Name: "第12集"}})) != 104 {
+		t.Fatal("short names keep narrow buttons")
+	}
+	long := "20241101期：嘉宾挑战极限任务"
+	if episodeCell(longestEpisode([]model.Episode{{Name: "第1集"}, {Name: long}})) <= 104 {
+		t.Fatal("a long name widens the buttons")
+	}
+	a := New()
+	tt := ui.NewTester(func(c *ui.Context) {
+		th := a.useTheme(c)
+		ui.Column(c).Width(120).Children(func() {
+			a.choice(c, th, "ep", long, false, func() {})
+		})
+	}, 400, 200)
+	r, ok := tt.Find(long)
+	if !ok {
+		t.Fatalf("texts %q", tt.Texts())
+	}
+	tt.Move(r.X+10, r.Y+r.H/2)
+	tt.Advance(time.Second)
+	tt.Frame()
+	n := 0
+	for _, s := range tt.Texts() {
+		if s == long {
+			n++
+		}
+	}
+	if n < 2 {
+		t.Fatalf("hovering must show the whole name in a tooltip: %q", tt.Texts())
 	}
 }

@@ -123,19 +123,22 @@ type App struct {
 
 	preferExternal bool
 	light          bool
-	volume         float64
-	rate           float64
-	linePick       int
-	playLine       string
-	playIndex      int
-	resumeAt       float64
-	showDrawer     bool
-	controlsUntil  time.Time
-	ptrX, ptrY     float32
-	ptrSeen        bool
-	savedVolume    float64
-	appliedVolume  float64
-	fullscreen     bool
+	// appearance is the chosen look: appearanceSystem, appearanceLight or
+	// appearanceDark. light is what it resolves to in the current frame.
+	appearance    string
+	volume        float64
+	rate          float64
+	linePick      int
+	playLine      string
+	playIndex     int
+	resumeAt      float64
+	showDrawer    bool
+	controlsUntil time.Time
+	ptrX, ptrY    float32
+	ptrSeen       bool
+	savedVolume   float64
+	appliedVolume float64
+	fullscreen    bool
 	// cfgCache is the config cache (configcache.go), read from disk on
 	// first use; fetch goroutines share it under cfgCacheMu.
 	cfgCacheMu sync.Mutex
@@ -257,10 +260,12 @@ type App struct {
 }
 
 type savedSettings struct {
-	Config          string                `json:"config,omitempty"`
-	Subs            []subscription        `json:"subs,omitempty"`
-	PreferExternal  bool                  `json:"preferExternal"`
+	Config         string         `json:"config,omitempty"`
+	Subs           []subscription `json:"subs,omitempty"`
+	PreferExternal bool           `json:"preferExternal"`
+	// Light is the old two-way switch, read when Appearance is missing.
 	Light           bool                  `json:"light,omitempty"`
+	Appearance      string                `json:"appearance,omitempty"`
 	Volume          *float64              `json:"volume,omitempty"`
 	Hidden          []string              `json:"hidden,omitempty"`
 	Blacklist       []string              `json:"blacklist,omitempty"`
@@ -372,7 +377,16 @@ func (a *App) RestoreSettings() []string {
 		return nil
 	}
 	a.preferExternal = s.PreferExternal
-	a.light = s.Light
+	a.appearance = s.Appearance
+	switch {
+	case validAppearance(a.appearance):
+	case s.Light:
+		a.appearance = appearanceLight
+	default:
+		// Settings from before the system option: they were dark.
+		a.appearance = appearanceDark
+	}
+	a.light = a.appearance == appearanceLight
 	a.hidden = map[string]bool{}
 	for _, id := range s.Hidden {
 		if id != "" {
@@ -1194,7 +1208,7 @@ func (a *App) saveSettings() {
 	vol := a.volume
 	s := savedSettings{
 		Config: a.primaryRef(), Subs: cloneSubs(a.subs),
-		PreferExternal: a.preferExternal, Light: a.light, Volume: &vol,
+		PreferExternal: a.preferExternal, Appearance: a.appearance, Volume: &vol,
 		Hidden:          hiddenIDs(a.hidden),
 		Blacklist:       cloneBlacklist(a.blacklist),
 		DisabledSources: disabledIDs(a.disabled),
