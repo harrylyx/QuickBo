@@ -32,3 +32,4 @@ QuickBo 的第一个版本。
 
 - 外观：跟随系统 / 浅色 / 深色
 - 安装包：macOS `.dmg`、Windows 安装程序、Linux `.deb` 与 `.tar.gz`
+- Windows 安装包内置对应架构的 `libmpv-2.dll`（amd64 / arm64），装好即可窗口内播放；macOS / Linux 仍需系统安装 libmpv

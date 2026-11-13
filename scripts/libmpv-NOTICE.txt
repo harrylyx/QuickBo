@@ -1,0 +1,18 @@
+QuickBo Windows 安装包附带第三方二进制 libmpv-2.dll（按 amd64 / arm64 分别打包）。
+
+组件：mpv / libmpv 及其中包含的 FFmpeg 等第三方库
+构建版本：20261111-git-bcde6b93cc
+来源：shinchiro/mpv-winbuild-cmake 的 mpv-dev 预编译包
+  https://github.com/shinchiro/mpv-winbuild-cmake/releases/tag/20261111
+上游源码与构建脚本：
+  https://github.com/mpv-player/mpv
+  https://github.com/shinchiro/mpv-winbuild-cmake
+  https://github.com/FFmpeg/FFmpeg
+
+许可说明：mpv 主体以 LGPL-2.1-or-later 发布，源码树中仍含
+GPL-2.0-or-later 的文件；该预编译包所含 FFmpeg 等库的具体许可证由构建
+选项决定，可能包含 GPL 组件。请以上游仓库随附的 LICENSE / COPYING 文件
+为准。对应源码与构建脚本可从上述地址取得。
+
+QuickBo 自身代码以 MIT 许可发布（见项目 LICENSE）；本文件只覆盖随包
+分发的第三方二进制。

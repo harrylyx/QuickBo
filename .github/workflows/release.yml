@@ -68,11 +68,26 @@ jobs:
             ${{ steps.go-env.outputs.mod }}
           key: go-${{ matrix.name }}-${{ hashFiles('go.mod', 'go.sum') }}
           restore-keys: go-${{ matrix.name }}-
-      - name: Install NSIS, for the Windows installers
+      - name: Install NSIS and 7-Zip, for the Windows installers
         if: matrix.name == 'Windows'
-        run: sudo apt-get update && sudo apt-get install -y nsis
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nsis 7zip || sudo apt-get install -y nsis p7zip-full
+      # mygo 会把 resources/windows-<arch>/ 的文件放到 exe 同目录，安装包因此
+      # 自带 libmpv；脚本固定版本并校验 SHA-256，失败就中断发布。
+      - name: Bundle libmpv for Windows
+        if: matrix.name == 'Windows'
+        run: bash scripts/fetch-libmpv-windows.sh
       - name: Build
         run: go tool mygo build -platform "${{ matrix.platform }}"
+      # 确认两个架构的产物里确实带上了 dll 和许可证说明。
+      - name: Check the bundled DLLs
+        if: matrix.name == 'Windows'
+        run: |
+          test -s build/windows-amd64/libmpv-2.dll
+          test -s build/windows-arm64/libmpv-2.dll
+          test -s build/windows-amd64/libmpv-NOTICE.txt
+          test -s build/windows-arm64/libmpv-NOTICE.txt
       - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.name }}

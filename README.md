@@ -60,15 +60,14 @@ QuickBo 用 [mygo](https://github.com/egoist/mygo) 的原生 GPU 界面（Metal 
 | 平台 | 安装包 | 播放所需 |
 | --- | --- | --- |
 | macOS | `quickbo-<版本>-arm64.dmg`（Apple 芯片）/ `-amd64.dmg`（Intel） | `brew install mpv` |
-| Windows | `quickbo-setup-<版本>-amd64.exe` / `-arm64.exe` | 把 `libmpv-2.dll` 放进安装目录（见下） |
+| Windows | `quickbo-setup-<版本>-amd64.exe` / `-arm64.exe` | **已内置对应架构的 `libmpv-2.dll`**，装好即可窗口内播放 |
 | Linux | `quickbo_<版本>_amd64.deb` / `_arm64.deb`，或 `.tar.gz`（内含 `install.sh`） | `.deb` 自动依赖 `libmpv2`；`.tar.gz` 需 `sudo apt install libmpv2` |
 
-> 💡 **关于 libmpv**：QuickBo 用 libmpv 在窗口里解码播放，安装包本身不带它。
+> 💡 **关于 libmpv**：QuickBo 用 libmpv 在窗口里解码播放。**Windows 安装包自带** `libmpv-2.dll`（[shinchiro/mpv-winbuild-cmake](https://github.com/shinchiro/mpv-winbuild-cmake/releases/tag/20261111) 的 `mpv-dev` 构建 `20261111-git-bcde6b93cc`，随包附 `libmpv-NOTICE.txt` 说明许可证与源码地址），无需另装；想换版本可直接替换程序目录里的同名文件。其它平台需自行安装：
 > - macOS：`brew install mpv`。
-> - Windows：从 [mpv-player-windows/libmpv](https://sourceforge.net/projects/mpv-player-windows/files/libmpv/) 下载，把 `libmpv-2.dll` 放到 `%LOCALAPPDATA%\Programs\QuickBo`（程序所在目录）。
 > - Linux：`sudo apt install libmpv2`。
 >
-> 没有 libmpv 但装了 mpv 程序时，会改用独立的 mpv 窗口播放（此时没有小窗、字幕面板等窗口内功能），并说明原因；两者都没有时，播放页会提示安装方法。
+> 若 dll 缺失或加载失败（例如精简系统缺少 `vulkan-1.dll`），但装了 mpv 程序，会改用独立的 mpv 窗口播放（此时没有小窗、字幕面板等窗口内功能），并说明原因；两者都没有时，播放页会提示安装方法。
 
 > ⚠️ **首次打开提示**：安装包暂未做开发者签名。
 > - **macOS** 提示「无法验证开发者」时：在「应用程序」里右键 QuickBo →「打开」，或执行
@@ -115,6 +114,14 @@ go tool mygo build                   # 打包当前平台到 build/
 go tool mygo build -platform linux/amd64,windows/amd64 -skip-installer   # 交叉编译
 ```
 
+Windows 安装包内置 libmpv：打包前先运行下载脚本，把两个架构的 dll 放进 `resources/windows-<arch>/`（mygo 会把它们复制到 exe 同目录，正是 `mpvlib` 查找 `libmpv-2.dll` 的位置）：
+
+```bash
+bash scripts/fetch-libmpv-windows.sh
+```
+
+脚本固定了 mpv-dev 版本与 SHA-256（见脚本顶部常量），升级时改这几个常量；解包需要 `7z` / `7zz`（Linux 装 `7zip` 或 `p7zip-full`）或 macOS 自带的 `bsdtar`。生成的 dll 不入库。
+
 启动时也可以带一份配置（会并入已保存的订阅）：
 
 ```bash
@@ -146,7 +153,7 @@ QUICKBO_LIBMPV_TEST=1 go test ./internal/player/mpvlib
 ## ⚠️ 已知限制
 
 - 不执行 JAR / DEX 爬虫与 Python 爬虫；drpy 只支持常见写法。
-- 安装包不带 libmpv，需按上文另行安装。
+- 仅 Windows 安装包内置 libmpv；macOS / Linux 需按上文另行安装。
 - 安装包未签名，首次打开需按上文放行。
 - 播放地址需要会员或平台页面（B站、腾讯视频等）时，依赖订阅里配置的解析接口。
 
@@ -154,6 +161,4 @@ QUICKBO_LIBMPV_TEST=1 go test ./internal/player/mpvlib
 
 解析层的划分（订阅解码、CMS、JS 爬虫、XBPQ 规则、直播列表）参考了 [UnBox](https://github.com/teaGod-s/UnBox)（MIT），实现是按这个结构另写的，没有整文件拷贝它的代码。打包与发布流程参考了 [mygo-music](https://github.com/egoist/mygo-music) 和 mygo 文档。
 
-没有使用 FongMi/TV、TVBoxOS、takagen99/Box、MisaTV、FreeBox 的代码。
-
-本仓库以 MIT 许可发布，见 [LICENSE](LICENSE)。
+本仓库以 MIT 许可发布，见 [LICENSE](LICENSE)。Windows 安装包附带的 `libmpv-2.dll` 属第三方组件，其许可证与源码地址见包内及 `scripts/libmpv-NOTICE.txt`。
