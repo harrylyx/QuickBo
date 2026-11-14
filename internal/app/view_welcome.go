@@ -72,6 +72,12 @@ func (a *App) viewWelcome(c *ui.Context, th *ui.Theme) {
 		To:    th.Background.MixOklab(th.Surface, 0.55),
 		Angle: 145,
 	}).Children(func() {
+		// The native title bar is hidden; the window controls sit over the
+		// screen's top left. The band under them and the brand row below
+		// drag the window.
+		if bar := c.TitleBar(); bar.Height > 0 {
+			ui.Box(c).Absolute().Left(0).Right(0).Top(0).Height(bar.Height).DragWindow()
+		}
 		ui.Column(c).Fill().Padding(welcomeEdgeTop, welcomeEdgeSide, welcomeEdgeBot, welcomeEdgeSide).Children(func() {
 			a.welcomeHeader(c, th)
 			ui.Box(c).Grow(1)
@@ -98,11 +104,11 @@ func (a *App) welcomeEnter(c *ui.Context, step int) ui.ElementTransition {
 
 func (a *App) welcomeHeader(c *ui.Context, th *ui.Theme) {
 	ui.Column(c.Key("welcome-head")).FillWidth().Gap(16).Transition(a.welcomeEnter(c, 0)).Children(func() {
-		ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
+		ui.Row(c).Gap(10).AlignItems(ui.Center).DragWindow().Children(func() {
 			logoMark(c, th, 26)
-			ui.Text(c, welcomeWordmark).FontSize(fontTitle).FontWeight(weightTitle).SingleLine()
-			ui.Box(c).Grow(1)
-			ui.Text(c, welcomeBrandTag).FontSize(fontCaption).TextColor(th.TextMuted).SingleLine()
+			ui.Text(c, welcomeWordmark).FontSize(fontTitle).FontWeight(weightTitle).SingleLine().PassThrough()
+			ui.Box(c).Grow(1).PassThrough()
+			ui.Text(c, welcomeBrandTag).FontSize(fontCaption).TextColor(th.TextMuted).SingleLine().PassThrough()
 		})
 		ui.Box(c).FillWidth().Height(1).Background(th.Border)
 	})

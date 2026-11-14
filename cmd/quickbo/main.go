@@ -29,7 +29,13 @@ func main() {
 			// appearance, not the app's own light/dark switch, so a dark
 			// app on a light system got a light sidebar.
 			BackgroundColor: "light-dark(#ffffff, #0f0f12)",
-			Content:         ui.View(application.View),
+			// The native title bar follows the system's appearance, not the
+			// app's own light/dark switch, so a dark app kept a white bar.
+			// Hiding it lets the app draw its own — the view drags the
+			// window and keeps clear of the controls the desktop leaves
+			// over the page (ui.Context.TitleBar).
+			TitleBarStyle: mygo.TitleBarHiddenInset,
+			Content:       ui.View(application.View),
 		})
 		application.Attach(win)
 		application.RestoreSettings()

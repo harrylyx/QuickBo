@@ -443,11 +443,20 @@ func (a *App) hoverAction(c *ui.Context, show bool, build func()) {
 
 func (a *App) viewSidebar(c *ui.Context, th *ui.Theme) {
 	ink := sidebarInk(a.light)
-	col := ui.Themed(c, sidebarTheme(th, ink)).Width(sideWidth).FillHeight().Background(ink).Padding(20, 12, 16, 12).Gap(18)
+	// The window controls the desktop leaves over the page (the traffic
+	// lights on macOS, at the top left) sit over this rail: it clears the
+	// band, and drags the window by its padding and header, as a native
+	// sidebar does.
+	bar := c.TitleBar()
+	top := float32(20)
+	if bar.Height > 0 {
+		top = max(top, bar.Height+6)
+	}
+	col := ui.Themed(c, sidebarTheme(th, ink)).Width(sideWidth).FillHeight().Background(ink).Padding(top, 12, 16, 12).Gap(18).DragWindow()
 	col.Children(func() {
-		ui.Row(c).Gap(10).AlignItems(ui.Center).Padding(2, 8, 0, 8).Children(func() {
+		ui.Row(c).Gap(10).AlignItems(ui.Center).Padding(2, 8, 0, 8).DragWindow().Children(func() {
 			logoMark(c, th, 30)
-			ui.Text(c, "QuickBo").FontSize(fontTitle).FontWeight(weightTitle)
+			ui.Text(c, "QuickBo").FontSize(fontTitle).FontWeight(weightTitle).PassThrough()
 		})
 		side := ui.Sidebar(c, &a.sideSel, func() {
 			ui.SidebarSection(c, "导航", nil, func() {
@@ -551,7 +560,12 @@ func (a *App) sideEntry(c *ui.Context, th *ui.Theme, key, label, tip string, ico
 }
 
 func (a *App) viewTop(c *ui.Context, th *ui.Theme) {
-	ui.Row(c).Padding(12, pagePad).Gap(12).AlignItems(ui.Center).Children(func() {
+	// The native title bar is hidden, so this row is the window's: it
+	// drags it, and pads away from the window controls the desktop leaves
+	// over the page — none on macOS, where the traffic lights sit over
+	// the sidebar, the caption buttons on Windows and Linux on the right.
+	bar := c.TitleBar()
+	ui.Row(c).DragWindow().Padding(12, pagePad+bar.Right, 12, pagePad).Gap(12).AlignItems(ui.Center).Children(func() {
 		if a.screen == screenDetail {
 			// The title is the page's own, in large: the bar only takes
 			// you back, as a disc over the backdrop.
@@ -569,7 +583,8 @@ func (a *App) viewTop(c *ui.Context, th *ui.Theme) {
 				ui.Text(c, a.headline()).FontSize(fontTitle).FontWeight(weightTitle).SingleLine()
 			})
 		}
-		ui.Column(c).Grow(1)
+		// Pass-through so the empty middle of the bar stays a drag handle.
+		ui.Column(c).Grow(1).PassThrough()
 		if a.screen == screenBrowse || a.screen == screenHome || a.screen == screenLive || a.screen == screenLiveAgg {
 			ph := "搜索片名"
 			if a.screen == screenHome {

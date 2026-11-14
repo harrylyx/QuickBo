@@ -550,8 +550,10 @@ func (a *App) playerChrome(c *ui.Context, th *ui.Theme) {
 	// where that sibling was and slide back over the fade.
 	ui.Column(c.Key("chrome-top")).Absolute().Left(0).Right(0).Top(0).Padding(20, 28).Gap(2).
 		Gradient(ui.RGBA(0, 0, 0, 0.78), ui.Transparent, 180).
-		Transition(chromeFade(-8)).Children(func() {
-		ui.Row(c).Gap(12).AlignItems(ui.Center).Children(func() {
+		Transition(chromeFade(-8)).DragWindow().Children(func() {
+		// The native title bar being hidden, the bar over the picture
+		// doubles as one: its empty reaches drag the window.
+		ui.Row(c).Gap(12).AlignItems(ui.Center).DragWindow().Children(func() {
 			a.iconBtn(c, "back", iconBack, "返回", 44, 26, white, func() {
 				if a.liveStageFailed() {
 					a.leaveLiveStage()
@@ -560,11 +562,12 @@ func (a *App) playerChrome(c *ui.Context, th *ui.Theme) {
 				a.back()
 			})
 			ui.Column(c).Gap(2).Shrink(1).Children(func() {
-				ui.Text(c, title).FontSize(fontTitle).Bold().TextColor(white).SingleLine()
+				ui.Text(c, title).FontSize(fontTitle).Bold().TextColor(white).SingleLine().PassThrough()
 				if episode != "" {
-					ui.Text(c, episode).FontSize(fontCaption).TextColor(th.AccentText.Alpha(0.78)).SingleLine()
+					ui.Text(c, episode).FontSize(fontCaption).TextColor(th.AccentText.Alpha(0.78)).SingleLine().PassThrough()
 				}
 			})
+			ui.Box(c).Grow(1).PassThrough()
 		})
 	})
 	ui.Column(c.Key("chrome-bottom")).Absolute().Left(0).Right(0).Bottom(0).Padding(20, 28, 18, 28).Gap(12).
