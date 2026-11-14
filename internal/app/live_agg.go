@@ -378,7 +378,12 @@ func liveLineLabel(line liveLine) string {
 
 // liveFullscreen reports a live picture that should cover the window.
 func (a *App) liveFullscreen() bool {
-	return (a.screen == screenLive || a.screen == screenLiveAgg) && a.fullscreen && a.fromLive && a.embedded()
+	if (a.screen != screenLive && a.screen != screenLiveAgg) || !a.fullscreen || !a.fromLive {
+		return false
+	}
+	// A failed channel has no player to ask, but the stage stays: leaving
+	// fullscreen here would look like the player quitting on its own.
+	return a.embedded() || a.liveStageFailed()
 }
 
 func (a *App) aggBuckets() [3][]liveAgg {
@@ -418,7 +423,7 @@ func (a *App) viewLiveAgg(c *ui.Context, th *ui.Theme) {
 		a.emptyState(c, th, "没有频道", body)
 		return
 	}
-	playing := (a.player != nil && a.fromLive) || (a.playLoading && a.fromLive)
+	playing := a.liveStageOpen()
 	buckets := a.aggBuckets()
 	ui.Row(c).Grow(1).Gap(12).AlignItems(ui.Stretch).Children(func() {
 		col := ui.Column(c)

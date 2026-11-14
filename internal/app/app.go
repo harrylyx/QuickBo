@@ -124,6 +124,9 @@ type App struct {
 	liveLoading bool
 	liveHealth  map[string]liveHealthState
 	liveTries   int
+	// liveCurrent is the channel the line walk is trying, so a manual retry
+	// can start the walk over after every line has failed.
+	liveCurrent live.Channel
 	// livePlayGen drops a stream probe once another channel has been
 	// opened, or the aggregate page has left that channel.
 	livePlayGen int
@@ -893,6 +896,10 @@ func (a *App) selectLive(i int) {
 	a.fromLive = true
 	a.channels = nil
 	a.liveErr = ""
+	// A failed stage from another list must not follow this one: its error
+	// would keep the empty player stage and its notice on screen.
+	a.playErr = ""
+	a.playLoading = false
 	a.liveLoading = true
 	entry := a.catalog.Lives[i]
 	gen := a.bump()

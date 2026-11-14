@@ -401,7 +401,18 @@ func (a *App) LoadSubs(refs []string) {
 			if len(merged.Sites) == 0 && len(merged.Lives) == 0 && len(merged.IndexEntries()) == 0 {
 				a.loading = false
 				a.loadNote = ""
-				a.loadErr = "这些订阅都没有打开，或里面没有源"
+				if links := indexLinks(cfgs); len(links) > 0 {
+					// The subscription is a warehouse index whose children
+					// failed. Keep its addresses on screen so one can be
+					// opened (and diagnosed) on its own.
+					a.catalog = &source.Catalog{Index: links}
+					a.allSites = nil
+					a.screen = screenIndex
+					a.sideSel = ""
+					a.loadErr = "仓库里的配置都没打开；可以在下面逐个地址重试"
+				} else {
+					a.loadErr = "这些订阅都没有打开，或里面没有源"
+				}
 				a.doneLoad()
 				return
 			}

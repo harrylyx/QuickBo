@@ -94,9 +94,18 @@ func (a *App) expandIndex(entries []config.NamedURL) {
 			if len(opened.Sites) == 0 && len(opened.Lives) == 0 {
 				a.loading = false
 				a.loadNote = ""
-				a.loadErr = "这些配置都没有打开，或里面没有源"
-				a.screen = screenEmpty
-				a.catalog = opened
+				if len(entries) > 0 {
+					// All children failed, but the warehouse links are still
+					// useful: show them instead of an empty page, so each
+					// address can be opened and its own error inspected.
+					a.loadErr = "仓库里的配置都没打开；可以在下面逐个地址重试"
+					a.screen = screenIndex
+					a.catalog = &source.Catalog{Parses: opened.Parses, Index: entries}
+				} else {
+					a.loadErr = "这些配置都没有打开，或里面没有源"
+					a.screen = screenEmpty
+					a.catalog = opened
+				}
 				a.doneLoad()
 				return
 			}
@@ -161,7 +170,15 @@ func (a *App) fetchEntries(ctx context.Context, refs []string, depth int, seen *
 			}
 			if len(cfg.Sites) == 0 && len(cfg.Lives) == 0 && depth+1 < indexMaxDepth {
 				if nested := cfg.IndexEntries(); len(nested) > 0 {
-					buckets[i] = a.fetchEntries(ctx, indexRefs(nested), depth+1, seen)
+					children := a.fetchEntries(ctx, indexRefs(nested), depth+1, seen)
+					if len(children) > 0 {
+						buckets[i] = children
+					} else {
+						// Every child failed. Fall back to the index document
+						// itself so its links stay reachable for a one-by-one
+						// retry instead of disappearing into an empty config.
+						buckets[i] = []*config.Config{cfg}
+					}
 					return
 				}
 			}
@@ -516,6 +533,28 @@ func indexRefs(entries []config.NamedURL) []string {
 		}
 		seen[u] = true
 		out = append(out, u)
+	}
+	return out
+}
+
+// indexLinks collects deduplicated warehouse addresses from every parsed
+// document, so a subscription whose children all failed can still show what
+// it was pointing at instead of only saying "no sources".
+func indexLinks(cfgs []*config.Config) []config.NamedURL {
+	seen := map[string]bool{}
+	var out []config.NamedURL
+	for _, cfg := range cfgs {
+		if cfg == nil {
+			continue
+		}
+		for _, u := range cfg.IndexEntries() {
+			url := strings.TrimSpace(u.URL)
+			if url == "" || seen[url] {
+				continue
+			}
+			seen[url] = true
+			out = append(out, u)
+		}
 	}
 	return out
 }

@@ -34,9 +34,15 @@ func (a *App) playerKeys(c *ui.Context) {
 	}
 	if a.player == nil {
 		// While the stream is still resolving (or failed to open) there is no
-		// player, but Escape must still leave the play screen.
-		if a.screen == screenPlay && c.Shortcut(0, ui.KeyEscape) {
-			a.back()
+		// player, but Escape must still leave the play screen, and a failed
+		// live stage must be able to give the channel list back.
+		if c.Shortcut(0, ui.KeyEscape) {
+			switch {
+			case a.screen == screenPlay:
+				a.back()
+			case a.liveStageOpen():
+				a.leaveLiveStage()
+			}
 		}
 		return
 	}
@@ -477,10 +483,25 @@ func (a *App) paintStage(c *ui.Context, th *ui.Theme, embed bool) {
 			a.playerChrome(c, th)
 		}
 		if a.playErr != "" {
-			ui.Column(c).Absolute().Left(24).Right(24).Bottom(108).Children(func() {
-				a.noteWithActions(c, th, a.playErr, true,
-					stateAction{label: "重试", primary: true, click: a.retryPlay})
-			})
+			if a.liveStageFailed() {
+				ui.Column(c).Absolute().Left(24).Right(24).Top(0).Bottom(0).Center().Children(func() {
+					ui.Column(c).FillWidth().Padding(20, 24).Radius(14).Gap(10).
+						Background(ui.RGBA(0, 0, 0, 0.72)).Children(func() {
+						ui.Text(c, "直播暂时无法播放").FontSize(fontTitle).Bold().TextColor(th.AccentText)
+						ui.Text(c, a.playErr+"。已试过可用线路，仍无法打开画面。可以重试、换一个频道，或检查订阅里的直播地址。").
+							FontSize(fontBody).TextColor(th.AccentText.Alpha(0.8)).Wrap()
+						a.actionRow(c, []stateAction{
+							{label: "重试线路", primary: true, click: a.retryLiveChannel},
+							{label: "返回频道列表", click: a.leaveLiveStage},
+						})
+					})
+				})
+			} else {
+				ui.Column(c).Absolute().Left(24).Right(24).Bottom(108).Children(func() {
+					a.noteWithActions(c, th, a.playErr, true,
+						stateAction{label: "重试", primary: true, click: a.retryPlay})
+				})
+			}
 		}
 		a.noticeLayer(c, th)
 		if a.showDrawer {
@@ -531,7 +552,13 @@ func (a *App) playerChrome(c *ui.Context, th *ui.Theme) {
 		Gradient(ui.RGBA(0, 0, 0, 0.78), ui.Transparent, 180).
 		Transition(chromeFade(-8)).Children(func() {
 		ui.Row(c).Gap(12).AlignItems(ui.Center).Children(func() {
-			a.iconBtn(c, "back", iconBack, "返回", 44, 26, white, func() { a.back() })
+			a.iconBtn(c, "back", iconBack, "返回", 44, 26, white, func() {
+				if a.liveStageFailed() {
+					a.leaveLiveStage()
+					return
+				}
+				a.back()
+			})
 			ui.Column(c).Gap(2).Shrink(1).Children(func() {
 				ui.Text(c, title).FontSize(fontTitle).Bold().TextColor(white).SingleLine()
 				if episode != "" {

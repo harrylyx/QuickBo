@@ -31,6 +31,7 @@ type liveHealthState struct {
 // channel is swapped for the next one in the group (see switchChannel) instead
 // of opening an mpv window that just shows an error.
 func (a *App) startChannel(ch live.Channel) {
+	a.liveCurrent = ch
 	stay := screenLive
 	if a.screen == screenLiveAgg {
 		stay = screenLiveAgg
@@ -102,6 +103,67 @@ func (a *App) startChannel(ch live.Channel) {
 	}()
 }
 
+// liveStageOpen reports whether the live player stage belongs on screen. A
+// channel whose every line failed has neither a player nor a spinner, but
+// dropping the stage reads as the player quitting on its own: keep the stage
+// and show the reason instead.
+func (a *App) liveStageOpen() bool {
+	if !a.fromLive || (a.screen != screenLive && a.screen != screenLiveAgg) {
+		return false
+	}
+	return a.player != nil || a.playLoading || a.playErr != ""
+}
+
+// liveStageFailed is a live stage that shows an error instead of a picture.
+func (a *App) liveStageFailed() bool {
+	return a.liveStageOpen() && a.player == nil && !a.playLoading && a.playErr != ""
+}
+
+// failLiveLines ends the line walk with a message on the stage.
+func (a *App) failLiveLines(msg string) {
+	if a.player != nil {
+		a.closePlayer()
+	}
+	a.playLoading = false
+	a.liveWatchAt = time.Time{}
+	a.playErr = msg
+	a.armControls()
+}
+
+// clearLiveFailures forgets the short-lived "line is down" verdicts, so a
+// manual retry probes every address again instead of skipping them.
+func (a *App) clearLiveFailures() {
+	for id, st := range a.liveHealth {
+		if !st.ok {
+			delete(a.liveHealth, id)
+		}
+	}
+}
+
+// retryLiveChannel starts the line walk over from the channel on air.
+func (a *App) retryLiveChannel() {
+	if strings.TrimSpace(a.liveCurrent.URL) == "" {
+		return
+	}
+	a.clearLiveFailures()
+	a.liveWatchAt = time.Time{}
+	a.playChannel(a.liveCurrent)
+}
+
+// leaveLiveStage gives the channel list back without navigating away, also
+// ending the window's fullscreen when the failed stage owned it.
+func (a *App) leaveLiveStage() {
+	a.livePlayGen++
+	a.liveTries = 0
+	a.playErr = ""
+	a.playLoading = false
+	a.fromLive = false
+	a.showDrawer = false
+	a.liveWatchAt = time.Time{}
+	a.closePlayer()
+	a.setFullscreen(false)
+}
+
 // switchChannel moves to the next channel after a failure. liveTries bounds
 // the walk so a dead group cannot loop forever.
 func (a *App) switchChannel(ch live.Channel) {
@@ -110,12 +172,12 @@ func (a *App) switchChannel(ch live.Channel) {
 	if a.screen == screenLiveAgg {
 		chs = a.liveAggLines
 		if a.liveTries > len(chs) {
-			a.playErr = "没有可用的直播线路"
+			a.failLiveLines("没有可用的直播线路")
 			return
 		}
 		next, ok := nextAggChannel(chs, ch)
 		if !ok {
-			a.playErr = "没有可用的直播线路"
+			a.failLiveLines("没有可用的直播线路")
 			return
 		}
 		a.noteLiveSwitch(next)
@@ -123,7 +185,7 @@ func (a *App) switchChannel(ch live.Channel) {
 		return
 	}
 	if a.liveTries > len(chs) {
-		a.playErr = "没有可用的直播线路"
+		a.failLiveLines("没有可用的直播线路")
 		return
 	}
 	idx := -1
@@ -134,7 +196,7 @@ func (a *App) switchChannel(ch live.Channel) {
 		}
 	}
 	if idx < 0 {
-		a.playErr = "这条线路不可用"
+		a.failLiveLines("这条线路不可用")
 		return
 	}
 	// Prefer the next channel in the same group, then the next channel overall.

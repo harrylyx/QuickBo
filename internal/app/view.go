@@ -1323,7 +1323,7 @@ func (a *App) viewLive(c *ui.Context, th *ui.Theme) {
 				})
 			})
 		})
-		playing := (a.player != nil && a.fromLive) || (a.playLoading && a.fromLive)
+		playing := a.liveStageOpen()
 		chCol := ui.Column(c)
 		if playing {
 			chCol = chCol.Width(300)
@@ -1351,7 +1351,7 @@ func (a *App) viewLive(c *ui.Context, th *ui.Theme) {
 				})
 			}).Grow(1)
 		})
-		if a.player != nil && a.fromLive || a.playLoading && a.fromLive {
+		if playing {
 			ui.Column(c).Grow(1).Children(func() {
 				a.paintStage(c, th, true)
 			})
