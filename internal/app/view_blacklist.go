@@ -38,7 +38,7 @@ func (a *App) selectedBlacklist() []string {
 // viewBlacklist manages blacklist keywords: add several at once, search,
 // select and remove in bulk, and see which sources each keyword hides.
 func (a *App) viewBlacklist(c *ui.Context, th *ui.Theme) {
-	ui.Text(c, "片源或直播名称包含这些关键字时会被全局隐藏，移出黑名单后恢复。可一次粘贴多个，用逗号、空格或换行分隔。改动会重新加载订阅（优先走本地缓存）。").TextColor(th.TextMuted).Wrap()
+	ui.Text(c, "名称含关键字的片源和直播会被隐藏。").TextColor(th.TextMuted).Wrap()
 	ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 		field := ui.TextInput(c, &a.blacklistDraft).Placeholder("关键字，如「测试」「广告」").Label("黑名单关键字").Grow(1)
 		add := ui.PrimaryButton(c, "加入黑名单").Disabled(strings.TrimSpace(a.blacklistDraft) == "").Clicked()

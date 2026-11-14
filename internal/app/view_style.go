@@ -96,6 +96,25 @@ func primaryPill(c *ui.Context, th *ui.Theme, key string, icon *ui.SVG, label st
 	return b
 }
 
+// secondaryPill matches primaryPill's height, radius and type, with a quiet
+// fill so the pair lines up and the filled action stays the one primary.
+func secondaryPill(c *ui.Context, th *ui.Theme, key, label string) ui.Element {
+	b := ui.ButtonBase(c.Key(key)).Height(44).PaddingX(22).Radius(999).AlignItems(ui.Center).Cursor(ui.CursorPointer).Label(label)
+	fill := th.Surface
+	switch {
+	case b.Pressed():
+		fill = th.SurfacePressed
+	case b.Hovered():
+		fill = th.SurfaceHover
+	}
+	b.Background(b.AnimateColor("bg", fill, colorEase)).TextColor(th.Text).Border(1, th.Border)
+	pressPose(b, 0.96)
+	b.Children(func() {
+		ui.Text(c, label).FontSize(15).FontWeight(weightStrong).SingleLine()
+	})
+	return b
+}
+
 // glassButton is a round secondary action that sits on artwork: a
 // translucent disc that lightens under the pointer.
 func glassButton(c *ui.Context, th *ui.Theme, key string, icon *ui.SVG, tip string, size float32, fg ui.Color, click func()) ui.Element {

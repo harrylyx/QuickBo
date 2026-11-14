@@ -91,6 +91,7 @@ type App struct {
 	pageNum   int
 	query     string
 	committed string
+	searchDue time.Time // when a typed query should commit, after a short pause
 	listErr   string
 	listLoad  bool
 
@@ -99,6 +100,9 @@ type App struct {
 	detailItem    model.Item
 	detailErr     string
 	detailLoading bool
+	synopsisOpen  bool   // the detail blurb is expanded past five lines
+	epPage        int    // which 30-episode window the detail grid shows
+	epLine        string // the line that epPage belongs to
 
 	playTitle   string
 	playURL     string
@@ -149,6 +153,8 @@ type App struct {
 	// from, since heroAt.
 	heroIdx, heroPrev int
 	heroAt            time.Time
+	heroPaused        bool
+	railScroll        map[string]*ui.ScrollState
 	videoBM           *ui.Bitmap
 	videoShown        bool
 	spaceDownAt       time.Time
@@ -165,6 +171,7 @@ type App struct {
 	subFilter      string                // 订阅列表搜索关键字
 	subSel         map[string]bool       // 批量选中的订阅 ref
 	subBatch       bool                  // 订阅批量管理模式
+	subConfirm     []string              // refs waiting on a batch-delete confirmation
 	srcFilter      string                // 片源管理搜索关键字
 	srcSort        string                // 片源排序键：srcSort* 常量
 	srcHealth      string                // 片源健康度筛选：srcShow* 常量
@@ -204,9 +211,11 @@ type App struct {
 	// were opened from, where back returns (backTarget).
 	playFrom   string
 	detailFrom string
-	// resumeEpisode names the episode a history entry resumes, which has no
-	// episode list to name it from.
+	// resumeEpisode names the episode a history entry resumes, until its
+	// detail arrives and playIndex can name it.
 	resumeEpisode string
+	// historyToken drops a detail fetch when a newer resume has started.
+	historyToken int
 
 	grid     ui.GridState
 	selected int
@@ -703,6 +712,9 @@ func (a *App) openDetail(item model.Item) {
 	a.detailErr = ""
 	a.detailLoading = true
 	a.linePick = 0
+	a.synopsisOpen = false
+	a.epPage = 0
+	a.epLine = ""
 	a.closePlayer()
 	id := item.ID
 	key := a.siteKey

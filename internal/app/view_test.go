@@ -461,7 +461,7 @@ func TestSidebarGroupsStartCollapsedAndLabelled(t *testing.T) {
 	}
 	found := false
 	for _, txt := range tt.Texts() {
-		if strings.HasPrefix(txt, "片源 · ") {
+		if strings.HasPrefix(txt, "片源") {
 			found = true
 		}
 	}

@@ -9,6 +9,7 @@ func svg(body string) *ui.SVG {
 
 var (
 	iconPlay         = svg(`<path d="M8 5.5v13l11-6.5z"/>`)
+	iconInfo         = svg(`<path d="M12 3a9 9 0 1 0 .01 18A9 9 0 0 0 12 3zm-.9 4.2h1.8V9h-1.8zm0 3.4h1.8V17h-1.8z"/>`)
 	iconPause        = svg(`<path d="M6 5h4v14H6zm8 0h4v14h-4z"/>`)
 	iconPrev         = svg(`<path d="M6 6h2.2v12H6zm3.2 6 8.8 5.2V6.8z"/>`)
 	iconNext         = svg(`<path d="M16 6h2.2v12H16zM6 6.8v10.4L14.8 12z"/>`)

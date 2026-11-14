@@ -54,12 +54,31 @@ func (a *App) viewSources(c *ui.Context, th *ui.Theme) {
 		if a.srcBatch {
 			batchLabel = "完成"
 		}
-		ui.Text(c, "测连通、延迟和服务器所在地，并按健康度排序。停用的源仍在列表里，可随时启用。").TextColor(th.TextMuted).Wrap()
+		ui.Text(c, "测连通和延迟，停用后可再启用。").TextColor(th.TextMuted).Wrap()
 		ui.Row(c).AlignItems(ui.Center).Gap(10).Wrap().Children(func() {
 			ui.SearchField(c, &a.srcFilter).Placeholder("搜索片源名称或地址").Width(200).Label("搜索片源")
-			ui.Select(c, &sortSel, srcSortOptions).Label("排序方式").Tooltip("排序方式：列表按什么先后排列").Width(140)
-			ui.Select(c, &healthSel, srcHealthOptions).Label("按状态筛选").Tooltip("按状态筛选：只显示可用、失败、未测速或较慢的源").Width(168)
-			ui.Select(c, &viewSel, srcViewOptions).Label("分组方式").Tooltip("分组方式：把列表按订阅、类型或健康度分成几组").Width(140)
+			ui.Button(c, "筛选").Label("筛选").Tooltip("排序、按状态筛选、分组").PopoverMenuButton(func(m *ui.Menu) {
+				m.Item("排序").Disabled(true)
+				for _, opt := range srcSortOptions {
+					if m.Item(opt).Radio(sortSel == opt).Chosen() {
+						a.srcSort = opt
+					}
+				}
+				m.Separator()
+				m.Item("状态").Disabled(true)
+				for _, opt := range srcHealthOptions {
+					if m.Item(opt).Radio(healthSel == opt).Chosen() {
+						a.srcHealth = opt
+					}
+				}
+				m.Separator()
+				m.Item("分组").Disabled(true)
+				for _, opt := range srcViewOptions {
+					if m.Item(opt).Radio(viewSel == opt).Chosen() {
+						a.srcView = opt
+					}
+				}
+			})
 			ui.Column(c).Grow(1)
 			if ui.Button(c, "全部测速").Disabled(a.probingActive).Clicked() {
 				a.probeAllSources()
@@ -71,10 +90,6 @@ func (a *App) viewSources(c *ui.Context, th *ui.Theme) {
 				}
 			}
 		})
-		a.srcSort = sortSel
-		a.srcHealth = healthSel
-		a.srcView = viewSel
-
 		if a.catalog == nil || len(a.allSites) == 0 {
 			a.emptyState(c, th, "还没有片源", "添加一份配置后，能列出内容的源会出现在这里。",
 				stateAction{label: "添加订阅", primary: true, click: a.openSubs})

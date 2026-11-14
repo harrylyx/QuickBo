@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -266,10 +267,103 @@ func (a *App) watchKey() string {
 // playHistory resumes a history entry. The detail of whatever was opened
 // last must not stay behind: the player title, the history record and the
 // progress all key off a.detail, so a stale one sent every entry to the
-// title watched before.
+// title watched before. Continue watching on the home page comes back to
+// that title's detail, once the episode list has been filled in.
 func (a *App) playHistory(w watchItem) {
+	toDetail := a.screen == screenHome
 	a.prepareHistory(w)
+	if toDetail {
+		a.noteDetailFrom()
+		a.screen = screenDetail
+	}
 	a.startPlay(w.Title, w.URL, nil, false)
+	a.fetchHistoryDetail(w)
+}
+
+// fetchHistoryDetail loads the title's lines so the player can change
+// episode, and so back from continue watching has a detail page to show.
+func (a *App) fetchHistoryDetail(w watchItem) {
+	src := a.current()
+	if src == nil || strings.TrimSpace(w.VodID) == "" {
+		a.detailLoading = false
+		return
+	}
+	a.historyToken++
+	token := a.historyToken
+	key, id := a.siteKey, w.VodID
+	a.detailLoading = true
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+		defer cancel()
+		d, err := src.Detail(ctx, id)
+		a.post(func() {
+			if a.historyToken != token || a.siteKey != key {
+				return
+			}
+			if a.detail == nil || a.detail.ID != id {
+				return
+			}
+			a.detailLoading = false
+			if err != nil {
+				a.detailErr = err.Error()
+				return
+			}
+			if d.ID == "" {
+				d.ID = id
+			}
+			if d.Title == "" {
+				d.Title = w.Title
+			}
+			if d.Pic == "" {
+				d.Pic = w.Pic
+			}
+			a.detail = &d
+			a.detailErr = ""
+			a.placeHistoryEpisode(w)
+		})
+	}()
+}
+
+// placeHistoryEpisode points the player and the detail grid at the episode
+// the history entry was watching.
+func (a *App) placeHistoryEpisode(w watchItem) {
+	if a.detail == nil || len(a.detail.Lines) == 0 {
+		return
+	}
+	lineIdx := 0
+	for i, ln := range a.detail.Lines {
+		if w.Line != "" && ln.Name == w.Line {
+			lineIdx = i
+			break
+		}
+	}
+	ln := a.detail.Lines[lineIdx]
+	idx := 0
+	found := false
+	if w.Episode != "" {
+		for i, ep := range ln.Episodes {
+			if ep.Name == w.Episode {
+				idx, found = i, true
+				break
+			}
+		}
+	}
+	if !found && w.URL != "" {
+		for i, ep := range ln.Episodes {
+			if ep.URL == w.URL {
+				idx = i
+				break
+			}
+		}
+	}
+	a.linePick = lineIdx
+	a.playLine = ln.Name
+	a.playIndex = idx
+	a.epLine = ln.Name
+	a.epPage = idx / 30
+	if idx < len(ln.Episodes) && ln.Episodes[idx].Name != "" {
+		a.resumeEpisode = ln.Episodes[idx].Name
+	}
 }
 
 func (a *App) prepareHistory(w watchItem) {

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 	"time"
@@ -106,13 +107,17 @@ func TestBackReturnsWhereItCameFrom(t *testing.T) {
 		t.Fatalf("history → play → retry → back went to %q", a.screen)
 	}
 
-	// Home's 继续观看 → player → back, with a source's detail left over.
+	// Home's 继续观看 → player → back lands on the title, then home.
 	a.sideSel, a.screen = "home", screenHome
 	a.detail = &model.Detail{ID: "9", Title: "别的片", Lines: []model.Line{{Name: "l", Episodes: []model.Episode{{Name: "e"}}}}}
 	a.playHistory(w)
 	a.back()
-	if a.screen != screenHome {
+	if a.screen != screenDetail {
 		t.Fatalf("continue watching → back went to %q", a.screen)
+	}
+	a.back()
+	if a.screen != screenHome {
+		t.Fatalf("detail → back went to %q", a.screen)
 	}
 
 	// Favorites → detail → back.
@@ -143,8 +148,8 @@ func TestBackReturnsWhereItCameFrom(t *testing.T) {
 	}
 }
 
-// Clicking through the window: the 继续观看 row on the home page and the
-// history page both come back to where they were.
+// Clicking through the window: continue watching comes back to the title's
+// detail, and a history card comes back to the history page.
 func TestHistoryCardsBackInTheWindow(t *testing.T) {
 	for _, from := range []string{"home", "history"} {
 		a := New()
@@ -153,7 +158,7 @@ func TestHistoryCardsBackInTheWindow(t *testing.T) {
 		a.catalog = &source.Catalog{Sites: []source.Source{cmsFake{}}}
 		a.lib.upsertWatch(watchItem{Key: mediaKey("c", "1"), SiteKey: "c", VodID: "1", Title: "某片", URL: "http://x.invalid/a.m3u8"})
 		a.screen, a.sideSel, a.lastSide = screenHome, "home", "home"
-		want := screenHome
+		want := screenDetail
 		tt := ui.NewTester(a.View, 1200, 800)
 		if from == "history" {
 			if err := tt.Click("历史"); err != nil {
@@ -212,4 +217,54 @@ func waitPlayResolve(t *testing.T, a *App) {
 		time.Sleep(2 * time.Millisecond)
 	}
 	t.Fatal("episode resolve did not finish")
+}
+
+// linedFake is a source whose detail carries an episode list.
+type linedFake struct {
+	cmsFake
+	detail model.Detail
+}
+
+func (s linedFake) Detail(context.Context, string) (model.Detail, error) { return s.detail, nil }
+
+func TestContinueWatchingResumesEpisodeAndBacksToDetail(t *testing.T) {
+	a := New()
+	a.settingsPath = ""
+	a.lib = loadLibrary(t.TempDir())
+	a.catalog = &source.Catalog{Sites: []source.Source{linedFake{detail: model.Detail{
+		ID: "1", Title: "某片",
+		Lines: []model.Line{{Name: "线路一", Episodes: []model.Episode{
+			{Name: "第1集", URL: "ep1"},
+			{Name: "第2集", URL: "ep2"},
+			{Name: "第3集", URL: "ep3"},
+		}}},
+	}}}}
+	w := watchItem{
+		Key: mediaKey("c", "1"), SiteKey: "c", VodID: "1", Title: "某片",
+		Line: "线路一", Episode: "第2集", URL: "http://cdn/2.m3u8", Position: 12,
+	}
+	a.lib.upsertWatch(w)
+	a.screen, a.sideSel = screenHome, "home"
+	a.playHistory(w)
+	if a.screen != screenPlay {
+		t.Fatalf("opened %q", a.screen)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for a.playIndex != 1 && time.Now().Before(deadline) {
+		time.Sleep(2 * time.Millisecond)
+	}
+	if a.playIndex != 1 || a.playLine != "线路一" {
+		t.Fatalf("resume landed on index %d line %q", a.playIndex, a.playLine)
+	}
+	if !a.hasEpisode(1) || !a.hasEpisode(-1) {
+		t.Fatal("neighboring episodes must be reachable")
+	}
+	a.back()
+	if a.screen != screenDetail || a.detail == nil || len(a.detail.Lines) != 1 {
+		t.Fatalf("back screen %q detail %+v", a.screen, a.detail)
+	}
+	a.back()
+	if a.screen != screenHome {
+		t.Fatalf("detail back went to %q", a.screen)
+	}
 }

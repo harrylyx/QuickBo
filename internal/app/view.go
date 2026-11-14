@@ -131,7 +131,7 @@ func (a *App) viewWelcome(c *ui.Context, th *ui.Theme) {
 					ui.Text(c, "QuickBo").FontSize(60).Bold()
 				})
 				ui.Text(c, "添加订阅，开始播放。").FontSize(fontHeadline)
-				ui.Text(c, "不内置任何片源。把你自己的配置 URL 或本地 JSON 加进来，再浏览、搜索和播放。JSON / XML CMS、一部分 JS（drpy）和 XBPQ 规则可以直接用。JAR/DEX 爬虫会列出来，但本版不执行 jar。").TextColor(th.TextMuted).Wrap()
+				ui.Text(c, "不内置任何片源。JSON、XML、一部分 JS 和 XBPQ 可以直接用；JAR/DEX 会列出来，但本版不执行 jar。").TextColor(th.TextMuted).Wrap()
 				if a.loading {
 					a.loadingRow(c, th, "正在读取配置…")
 				}
@@ -139,10 +139,10 @@ func (a *App) viewWelcome(c *ui.Context, th *ui.Theme) {
 					a.noteWithActions(c, th, a.loadErr, true, stateAction{label: "重试订阅", primary: true, click: a.retrySubs})
 				}
 				ui.Row(c).Gap(10).Padding(8, 0, 0, 0).Children(func() {
-					if ui.PrimaryButton(c, "添加订阅").Clicked() {
+					if primaryPill(c, th, "welcome-add", nil, "添加订阅").Clicked() {
 						a.openSubs()
 					}
-					if ui.Button(c, "打开本地文件").Clicked() {
+					if secondaryPill(c, th, "welcome-file", "打开本地文件").Clicked() {
 						a.pickFile()
 					}
 				})
@@ -167,7 +167,7 @@ func (a *App) subsPanel(c *ui.Context, th *ui.Theme, page bool) {
 	if !page {
 		ui.Text(c, "订阅").FontSize(fontHeadline).Bold()
 	}
-	ui.Text(c, "TVBox / FongMi 订阅的 URL，或本机 JSON。多份源会合并；停用或删除后立即重新加载。").TextColor(th.TextMuted).Wrap()
+	ui.Text(c, "订阅地址或本地 JSON，多份会合并。").TextColor(th.TextMuted).Wrap()
 
 	sortSel := a.subSort
 	if sortSel == "" {
@@ -185,6 +185,7 @@ func (a *App) subsPanel(c *ui.Context, th *ui.Theme, page bool) {
 			a.subBatch = !a.subBatch
 			if !a.subBatch {
 				a.subSel = nil
+				a.subConfirm = nil
 			}
 		}
 	})
@@ -241,11 +242,11 @@ func (a *App) subsPanel(c *ui.Context, th *ui.Theme, page bool) {
 						if !sub.Enabled {
 							label, glyph = "启用", iconPlay
 						}
-						a.iconBtn(c, "sub-toggle:"+ref, glyph, label, 30, 16, th.TextMuted, func() {
+						a.iconBtn(c, "sub-toggle:"+ref, glyph, label, 36, 18, th.TextMuted, func() {
 							a.toggleSubscription(ref)
 							stop = true
 						})
-						a.iconBtn(c, "sub-drop:"+ref, iconTrash, "删除订阅", 30, 16, th.Danger, func() {
+						a.iconBtn(c, "sub-drop:"+ref, iconTrash, "删除订阅", 36, 18, th.Danger, func() {
 							a.removeSubscription(ref)
 							stop = true
 						})
@@ -307,12 +308,29 @@ func (a *App) subsPanel(c *ui.Context, th *ui.Theme, page bool) {
 				stop = true
 			}
 			if ui.Button(c, "删除").Disabled(selCount == 0).Clicked() && selCount > 0 {
-				a.deleteSubscriptions(selected())
+				a.subConfirm = selected()
 				stop = true
 			}
 		})
 		if stop {
 			return
+		}
+		if n := len(a.subConfirm); n > 0 {
+			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+				ui.Text(c, fmt.Sprintf("删除选中的 %d 份订阅？", n)).Grow(1)
+				if ui.Button(c, "取消").Clicked() {
+					a.subConfirm = nil
+				}
+				if ui.Button(c, "确认删除").Clicked() {
+					refs := append([]string(nil), a.subConfirm...)
+					a.subConfirm = nil
+					a.deleteSubscriptions(refs)
+					stop = true
+				}
+			})
+			if stop {
+				return
+			}
 		}
 	}
 
@@ -333,6 +351,7 @@ func (a *App) subsPanel(c *ui.Context, th *ui.Theme, page bool) {
 			a.adding = false
 			a.subBatch = false
 			a.subSel = nil
+			a.subConfirm = nil
 			a.subFilter = ""
 		}
 		if ui.Button(c, "打开文件").Clicked() {
@@ -352,8 +371,6 @@ func (a *App) viewSettings(c *ui.Context, th *ui.Theme) {
 	ui.Modal(c, &a.settingsOpen, func() {
 		ui.Column(c).Width(480).Gap(16).Children(func() {
 			ui.Text(c, "设置").FontSize(fontHeadline).Bold()
-			ui.Text(c, "外观偏好只影响这台设备。订阅、片源、黑名单和首页分类在侧栏「管理」中。").TextColor(th.TextMuted).Wrap()
-
 			ui.Text(c, "外观").FontSize(fontCaption).TextColor(th.TextMuted)
 			ui.Row(c).Gap(8).Children(func() {
 				for _, opt := range [][2]string{{appearanceSystem, "跟随系统"}, {appearanceLight, "浅色"}, {appearanceDark, "深色"}} {
@@ -509,48 +526,25 @@ func (a *App) viewTop(c *ui.Context, th *ui.Theme) {
 				}
 			}
 			ui.Column(c).Gap(1).Shrink(1).Children(func() {
-				ui.Text(c, a.crumb()).FontSize(fontCaption).TextColor(th.TextMuted).SingleLine()
+				if a.screen != screenHome {
+					ui.Text(c, a.crumb()).FontSize(fontCaption).TextColor(th.TextMuted).SingleLine()
+				}
 				ui.Text(c, a.headline()).FontSize(fontTitle).FontWeight(weightTitle).SingleLine()
 			})
 		}
 		ui.Column(c).Grow(1)
 		if a.screen == screenBrowse || a.screen == screenHome || a.screen == screenLive {
-			ph := "搜索片名，回车"
+			ph := "搜索片名"
 			if a.screen == screenHome {
-				ph = "搜索全部片源，回车"
+				ph = "搜索全部片源"
 			}
 			if a.screen == screenLive {
 				ph = "过滤频道"
 			}
 			field := ui.SearchField(c, &a.query).Placeholder(ph).Width(260).Label("搜索")
 			if a.screen == screenBrowse || a.screen == screenHome {
-				cleared := field.Changed() && strings.TrimSpace(a.query) == "" && a.committed != ""
-				if field.Submitted() || cleared {
-					a.committed = strings.TrimSpace(a.query)
-					a.pageNum = 1
-					if a.screen == screenHome {
-						if a.committed == "" {
-							a.homeHits = nil
-							a.homeSearching = false
-						} else {
-							a.searchHome()
-						}
-					} else {
-						if a.committed == "" {
-							a.screen = screenHome
-							a.sideSel = "home"
-							a.lastSide = "home"
-						} else if a.siteKey != "" {
-							a.sideSel = "site:" + a.siteKey
-							a.lastSide = a.sideSel
-						}
-						a.loadList()
-					}
-				}
+				a.watchSearch(c, field)
 			}
-		}
-		if !isManage(a.screen) && ui.Button(c, "订阅").Clicked() {
-			a.openSubs()
 		}
 	})
 	if a.loading || a.loadErr != "" {
@@ -567,6 +561,52 @@ func (a *App) viewTop(c *ui.Context, th *ui.Theme) {
 			}
 		})
 	}
+}
+
+const searchWait = 300 * time.Millisecond
+
+// watchSearch commits a typed query after a short pause, on Enter, or as
+// soon as the field is cleared. The search field already draws its own
+// clear button while it holds text.
+func (a *App) watchSearch(c *ui.Context, field ui.Element) {
+	q := strings.TrimSpace(a.query)
+	changed := q != strings.TrimSpace(a.committed)
+	if field.Changed() && changed {
+		a.searchDue = time.Now().Add(searchWait)
+	}
+	ready := !a.searchDue.IsZero() && !time.Now().Before(a.searchDue)
+	cleared := field.Changed() && q == "" && strings.TrimSpace(a.committed) != ""
+	if field.Submitted() || cleared || (ready && changed) {
+		a.applyQuery()
+		return
+	}
+	if changed && !a.searchDue.IsZero() {
+		c.After(time.Until(a.searchDue))
+	}
+}
+
+func (a *App) applyQuery() {
+	a.committed = strings.TrimSpace(a.query)
+	a.pageNum = 1
+	a.searchDue = time.Time{}
+	if a.screen == screenHome {
+		if a.committed == "" {
+			a.homeHits = nil
+			a.homeSearching = false
+		} else {
+			a.searchHome()
+		}
+		return
+	}
+	if a.committed == "" {
+		a.screen = screenHome
+		a.sideSel = "home"
+		a.lastSide = "home"
+	} else if a.siteKey != "" {
+		a.sideSel = "site:" + a.siteKey
+		a.lastSide = a.sideSel
+	}
+	a.loadList()
 }
 
 func (a *App) crumb() string {
@@ -602,6 +642,9 @@ func (a *App) crumb() string {
 func (a *App) headline() string {
 	switch a.screen {
 	case screenHome:
+		if q := strings.TrimSpace(a.committed); q != "" {
+			return "搜索「" + q + "」"
+		}
 		return "全部片源"
 	case screenHistory:
 		return "观看历史"
@@ -817,32 +860,35 @@ func (a *App) viewContinue(c *ui.Context, th *ui.Theme) {
 	}
 	ui.Column(c).Gap(12).Children(func() {
 		ui.Text(c, "继续观看").FontSize(fontTitle).Bold()
-		ui.ScrollBoth(c).MaxHeight(210).Children(func() {
+		ui.ScrollBoth(c).MaxHeight(248).Children(func() {
 			ui.Row(c).Gap(12).Children(func() {
 				for _, w := range watches {
 					w := w
-					card := ui.Column(c.Key("w-" + w.Key)).Width(104).Gap(8).OnClick(func() {
+					card := ui.Column(c.Key("w-" + w.Key)).Width(104).Gap(6).OnClick(func() {
 						a.playHistory(w)
 					}).Cursor(ui.CursorPointer)
+					card.ContextMenu(func(menu *ui.Menu) {
+						if menu.Item("从继续观看删除").Chosen() {
+							a.lib.removeWatch(w.Key)
+						}
+					})
 					hot := card.Hovered()
 					card.Children(func() {
 						frame := ui.Column(c.Key("continue-frame:" + w.Key)).Width(104).Height(156).Radius(8).Clip().Background(th.Surface)
 						a.animateCard(card, frame, hot, a.light)
 						frame.Children(func() {
 							a.cover(c, th, w.Pic, w.Title, 104, 156, nil, hot)
-							if hot {
-								a.removeBadge(c, th, "remove-continue:"+w.Key, "从继续观看删除", func() {
-									a.lib.removeWatch(w.Key)
-								})
-							}
 						})
 						ui.Text(c, w.Title).FontSize(fontCaption).SingleLine()
+						if meta := continueMeta(w); meta != "" {
+							ui.Text(c, meta).FontSize(fontCaption).TextColor(th.TextMuted).SingleLine()
+						}
 						frac := float32(0)
 						if w.Duration > 0 {
 							frac = float32(w.Position / w.Duration)
 						}
-						ui.Box(c).FillWidth().Height(2).Radius(1).Background(th.SurfaceHover).Children(func() {
-							ui.Box(c).Height(2).WidthPercent(frac * 100).Background(th.Accent)
+						ui.Box(c).FillWidth().Height(4).Radius(2).Background(th.SurfaceHover).Children(func() {
+							ui.Box(c).Height(4).WidthPercent(frac * 100).Background(th.Accent)
 						})
 					})
 				}
@@ -1033,7 +1079,20 @@ func (a *App) viewDetail(c *ui.Context, th *ui.Theme) {
 						ui.Text(c, who).FontSize(fontCaption).TextColor(th.TextMuted).Wrap()
 					}
 					if d.Content != "" {
-						ui.Text(c, d.Content).FontSize(fontBody).LineHeight(1.6).TextColor(th.Text.Alpha(0.78)).MaxWidth(760).MaxLines(5).Wrap()
+						body := ui.Text(c, d.Content).FontSize(fontBody).LineHeight(1.6).TextColor(th.Text.Alpha(0.78)).MaxWidth(760).Wrap()
+						long := utf8.RuneCountInString(d.Content) > 160 || strings.Count(d.Content, "\n") >= 5
+						if !a.synopsisOpen {
+							body.MaxLines(5)
+						}
+						if long {
+							label := "展开全文"
+							if a.synopsisOpen {
+								label = "收起"
+							}
+							if ui.Button(c, label).Clicked() {
+								a.synopsisOpen = !a.synopsisOpen
+							}
+						}
 					}
 					ui.Row(c).Gap(12).AlignItems(ui.Center).Padding(8, 0, 0, 0).Children(func() {
 						if a.linePick >= 0 && a.linePick < len(d.Lines) && len(d.Lines[a.linePick].Episodes) > 0 {
@@ -1084,6 +1143,10 @@ func (a *App) viewDetail(c *ui.Context, th *ui.Theme) {
 				a.viewOffers(c, th)
 			}
 			if len(d.Lines) == 0 {
+				if a.detailLoading {
+					a.loadingRow(c, th, "正在读取影片详情…")
+					return
+				}
 				a.emptyState(c, th, "没有剧集", "这个详情页没有返回可播放的地址。",
 					stateAction{label: "返回", primary: true, click: a.back})
 				return
@@ -1104,25 +1167,50 @@ func (a *App) viewDetail(c *ui.Context, th *ui.Theme) {
 				ui.Text(c, d.Lines[0].Name).FontSize(fontCaption).Bold().TextColor(th.TextMuted)
 			}
 			line := d.Lines[a.linePick]
+			if a.epLine != line.Name {
+				a.epLine = line.Name
+				a.epPage = 0
+			}
+			const epWindow = 30
+			total := len(line.Episodes)
+			pages := (total + epWindow - 1) / epWindow
+			if pages < 1 {
+				pages = 1
+			}
+			if a.epPage >= pages {
+				a.epPage = 0
+			}
+			start := a.epPage * epWindow
+			end := min(start+epWindow, total)
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 				ui.Text(c, "剧集").FontSize(fontTitle).Bold()
-				ui.Text(c, fmt.Sprintf("%d 集", len(line.Episodes))).FontSize(fontCaption).TextColor(th.TextMuted)
+				ui.Text(c, fmt.Sprintf("%d 集", total)).FontSize(fontCaption).TextColor(th.TextMuted)
 			})
-			tracks := a.episodeTracks(c, longestEpisode(line.Episodes))
-			ui.ScrollBoth(c).MaxHeight(260).Children(func() {
-				ui.Grid(c).ColumnTracks(tracks...).Gap(8).Children(func() {
-					for _, ep := range line.Episodes {
-						ep := ep
-						label := ep.Name
-						if label == "" {
-							label = "播放"
-						}
-						on := a.playLine == line.Name && label == currentEpisodeName(a)
-						a.choice(c, th, line.Name+"\n"+ep.URL+"\n"+label, label, on, func() {
-							a.playEpisode(line.Name, ep)
-						})
+			if pages > 1 {
+				ui.Row(c).Gap(8).Wrap().Children(func() {
+					for p := 0; p < pages; p++ {
+						p := p
+						from := p*epWindow + 1
+						to := min((p+1)*epWindow, total)
+						label := fmt.Sprintf("%d–%d", from, to)
+						a.choice(c, th, "ep-page:"+line.Name+":"+label, label, p == a.epPage, func() { a.epPage = p })
 					}
 				})
+			}
+			shown := line.Episodes[start:end]
+			tracks := a.episodeTracks(c, longestEpisode(shown))
+			ui.Grid(c).ColumnTracks(tracks...).Gap(8).Children(func() {
+				for _, ep := range shown {
+					ep := ep
+					label := ep.Name
+					if label == "" {
+						label = "播放"
+					}
+					on := a.playLine == line.Name && label == currentEpisodeName(a)
+					a.choice(c, th, line.Name+"\n"+ep.URL+"\n"+label, label, on, func() {
+						a.playEpisode(line.Name, ep)
+					})
+				}
 			})
 		})
 	})
@@ -1202,9 +1290,14 @@ func (a *App) viewLive(c *ui.Context, th *ui.Theme) {
 			ui.Text(c, fmt.Sprintf("%d 个频道", len(shown))).FontSize(fontCaption).TextColor(th.TextMuted)
 			ui.List(c, &a.chState, len(shown), func(i int) {
 				ch := shown[i]
-				row := ui.Row(c).FillWidth().Padding(8, 12).Radius(8).Gap(12).AlignItems(ui.Center)
+				onAir := a.fromLive && ch.Name == a.playTitle
+				row := ui.Row(c).FillWidth().Padding(8, 12).Radius(8).Gap(12).AlignItems(ui.Center).
+					OnClick(func() { a.playChannel(ch) }).Cursor(ui.CursorPointer)
 				bg := ui.Transparent
-				if row.Hovered() || ch.Name == a.playTitle {
+				switch {
+				case onAir:
+					bg = th.Accent.Alpha(0.16)
+				case row.Hovered():
 					bg = th.SurfaceHover
 				}
 				row.Background(bg).Children(func() {
@@ -1335,6 +1428,54 @@ func (a *App) choice(c *ui.Context, th *ui.Theme, key, label string, on bool, cl
 	})
 }
 
+// stageChoice is a choice on the player's near-black panels. Those panels
+// stay dark in either appearance, so the label stays light instead of
+// following the window theme.
+func (a *App) stageChoice(c *ui.Context, th *ui.Theme, key, label string, on bool, click func()) {
+	p := ui.Column(c.Key(key)).Padding(9, 14).Radius(10).OnClick(click).Cursor(ui.CursorPointer)
+	if utf8.RuneCountInString(label) > choiceTipRunes {
+		p.Tooltip(label)
+	}
+	ink := th.AccentText
+	bg, fg := ink.Alpha(0.12), ink
+	edge := ink.Alpha(0.22)
+	switch {
+	case on:
+		bg, fg, edge = th.Accent, th.AccentText, th.Accent
+	case p.Hovered():
+		bg = ink.Alpha(0.2)
+	}
+	p.Background(p.AnimateColor("bg", bg, colorEase)).Border(1, p.AnimateColor("edge", edge, colorEase))
+	pressPose(p, 0.96)
+	p.Children(func() {
+		w := 400
+		if on {
+			w = weightStrong
+		}
+		ui.Text(c, label).FontSize(fontBody).FontWeight(w).TextColor(fg).SingleLine()
+	})
+}
+
+// stageButton is a text button on those same dark panels.
+func stageButton(c *ui.Context, th *ui.Theme, label string) ui.Element {
+	b := ui.ButtonBase(c).Height(36).PaddingX(14).Radius(8).AlignItems(ui.Center).
+		Cursor(ui.CursorPointer).Label(label)
+	ink := th.AccentText
+	bg := ink.Alpha(0.12)
+	switch {
+	case b.Pressed():
+		bg = ink.Alpha(0.24)
+	case b.Hovered():
+		bg = ink.Alpha(0.18)
+	}
+	b.Background(b.AnimateColor("bg", bg, colorEase)).TextColor(ink)
+	pressPose(b, 0.96)
+	b.Children(func() {
+		ui.Text(c, label).FontSize(fontBody).TextColor(ink).SingleLine()
+	})
+	return b
+}
+
 // deadChoice is a choice that cannot be picked: greyed, marked 无法播放,
 // with why in its tooltip.
 func (a *App) deadChoice(c *ui.Context, th *ui.Theme, key, label, reason string) {
@@ -1365,7 +1506,7 @@ func (a *App) actionRow(c *ui.Context, actions []stateAction) {
 			action := action
 			var btn ui.Element
 			if action.primary {
-				btn = ui.PrimaryButton(c, action.label)
+				btn = primaryPill(c, c.Theme(), "action:"+action.label, nil, action.label)
 			} else {
 				btn = ui.Button(c, action.label)
 			}
@@ -1458,6 +1599,17 @@ func (a *App) loadingRow(c *ui.Context, th *ui.Theme, text string) {
 		ui.Spinner(c)
 		ui.Text(c, text).TextColor(th.TextMuted)
 	})
+}
+
+func continueMeta(w watchItem) string {
+	var parts []string
+	if ep := strings.TrimSpace(w.Episode); ep != "" {
+		parts = append(parts, ep)
+	}
+	if w.Duration > 0 && w.Position >= 0 && w.Duration > w.Position {
+		parts = append(parts, "剩余 "+clock(w.Duration-w.Position))
+	}
+	return strings.Join(parts, " · ")
 }
 
 func joinMeta(parts ...string) string {

@@ -120,13 +120,26 @@ func TestLoadSubsMergesAndGroupsSources(t *testing.T) {
 		t.Fatalf("groups %+v", a.groupOf)
 	}
 	groups := a.sideGroups()
-	if len(groups) != 2 || groups[0].name != "one" || groups[1].name != "two" {
+	if len(groups) != 1 || groups[0].name != "片源" || len(groups[0].sites) != 2 {
 		t.Fatalf("groups %+v", groups)
 	}
-	for _, g := range groups {
-		if len(g.sites) != 1 {
-			t.Fatalf("group %q has %d sites", g.name, len(g.sites))
-		}
+}
+
+func TestSideGroupsSplitSitesAndLives(t *testing.T) {
+	a := New()
+	a.catalog = &source.Catalog{
+		Sites: []source.Source{cmsFake{}},
+		Lives: []*source.LiveEntry{{Name: "央视", URL: "http://live"}},
+	}
+	groups := a.sideGroups()
+	if len(groups) != 2 || groups[0].name != "片源" || groups[1].name != "直播" {
+		t.Fatalf("%+v", groups)
+	}
+	if len(groups[0].sites) != 1 || len(groups[1].lives) != 1 || groups[1].lives[0].entry.Name != "央视" {
+		t.Fatalf("%+v", groups)
+	}
+	if sideGroupTitle(groups[0]) != "片源  1" || sideGroupTitle(groups[1]) != "直播  1" {
+		t.Fatalf("%q %q", sideGroupTitle(groups[0]), sideGroupTitle(groups[1]))
 	}
 }
 
@@ -180,7 +193,7 @@ func TestSubsDialogListsSubscriptions(t *testing.T) {
 		{Ref: "two", Name: "乙订阅", Enabled: false},
 	}
 	tt := ui.NewTester(a.View, 1200, 900)
-	if err := tt.Click("订阅"); err != nil {
+	if err := tt.Click("管理"); err != nil {
 		t.Fatal(err)
 	}
 	for _, text := range []string{"搜索订阅", "添加订阅", "甲订阅", "乙订阅", "启用"} {
@@ -198,7 +211,7 @@ func TestSubsDialogToggleDoesNotCrashTheFrame(t *testing.T) {
 	a.screen = screenHome
 	a.subs = []subscription{{Ref: "one", Name: "一", Enabled: true}}
 	tt := ui.NewTester(a.View, 1200, 900)
-	if err := tt.Click("订阅"); err != nil {
+	if err := tt.Click("管理"); err != nil {
 		t.Fatal(err)
 	}
 	if err := tt.Click("停用"); err != nil {
@@ -232,7 +245,7 @@ func TestSubsAndSettingsDialogsAreSeparate(t *testing.T) {
 	if err := tt.Click("完成"); err != nil {
 		t.Fatal(err)
 	}
-	if err := tt.Click("订阅"); err != nil {
+	if err := tt.Click("管理"); err != nil {
 		t.Fatal(err)
 	}
 	for _, text := range []string{"搜索订阅", "添加订阅", "配置 URL"} {

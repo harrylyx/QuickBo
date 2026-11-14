@@ -269,18 +269,6 @@ func (a *App) setRate(r float64) {
 	a.notify("倍速 " + trimRate(r))
 }
 
-// cycleRate steps through rateList, wrapping around, so the rate button is a
-// single tap to change speed rather than opening an options row.
-func (a *App) cycleRate() {
-	i := 0
-	for ; i < len(rateList); i++ {
-		if rateList[i] == a.rate {
-			break
-		}
-	}
-	a.setRate(rateList[(i+1)%len(rateList)])
-}
-
 // playerInput takes the space key while the stage has focus, so a short press
 // pauses on release and a hold becomes a temporary 2× boost (see playerKeys).
 func (a *App) playerInput(ev ui.InputEvent) bool {
@@ -556,6 +544,9 @@ func (a *App) playerChrome(c *ui.Context, th *ui.Theme) {
 				a.iconBtn(c, "eps", iconList, "选集", 44, 26, white, func() {
 					a.showDrawer = !a.showDrawer
 					a.px.panel = false
+					if a.showDrawer {
+						a.syncDrawerLine()
+					}
 				})
 			}
 			a.iconBtn(c, "panel", iconSliders, "播放设置：字幕、画面、跳过片头片尾", 44, 24, white, func() {
@@ -580,15 +571,30 @@ func chromeFade(y float32) ui.ElementTransition {
 	}
 }
 
+// rateBtn cycles the speed and shows the current one. It stays on the bar
+// because changing speed is a frequent tap, not a trip into the panel.
 func (a *App) rateBtn(c *ui.Context, th *ui.Theme) {
 	label := trimRate(a.rate)
-	b := ui.Column(c.Key("speed")).Padding(6, 8).Radius(8).OnClick(a.cycleRate).Cursor(ui.CursorPointer)
+	b := ui.Column(c.Key("speed")).Height(44).Padding(0, 10).Radius(8).Center().
+		OnClick(a.cycleRate).Cursor(ui.CursorPointer).Tooltip("倍速").Label("倍速")
+	bg := ui.Transparent
 	if b.Hovered() {
-		b.Background(th.AccentText.Alpha(0.14))
+		bg = th.AccentText.Alpha(0.14)
 	}
-	b.Tooltip("倍速").Label("倍速").Children(func() {
-		ui.Text(c, label).FontSize(fontCaption).Bold().TextColor(th.AccentText)
+	b.Background(bg).Children(func() {
+		ui.Text(c, label).FontSize(fontBody).Bold().TextColor(th.AccentText)
 	})
+}
+
+// cycleRate steps through rateList, wrapping around.
+func (a *App) cycleRate() {
+	i := 0
+	for ; i < len(rateList); i++ {
+		if rateList[i] == a.rate {
+			break
+		}
+	}
+	a.setRate(rateList[(i+1)%len(rateList)])
 }
 
 func trimRate(r float64) string {
@@ -728,27 +734,36 @@ func (a *App) episodeDrawer(c *ui.Context, th *ui.Theme) {
 			a.iconBtn(c, "close-eps", iconBack, "关闭", 44, 22, th.AccentText, func() { a.showDrawer = false })
 		})
 		if a.detail == nil {
-			ui.Text(c, "没有剧集列表").TextColor(th.TextMuted)
+			ui.Text(c, "没有剧集列表").TextColor(th.AccentText.Alpha(0.7))
 			return
+		}
+		if len(a.detail.Lines) > 1 {
+			ui.ScrollBoth(c).MaxHeight(52).Children(func() {
+				ui.Row(c).Gap(8).Children(func() {
+					for i, ln := range a.detail.Lines {
+						i := i
+						a.stageChoice(c, th, "drawer-line:"+ln.Name, lineLabel(ln.Name, i), i == a.linePick, func() { a.linePick = i })
+					}
+				})
+			})
 		}
 		ui.Scroll(c).Grow(1).Children(func() {
 			ui.Column(c).Gap(6).Children(func() {
-				for _, ln := range a.detail.Lines {
-					if a.playLine != "" && ln.Name != a.playLine {
-						continue
+				if a.linePick < 0 || a.linePick >= len(a.detail.Lines) {
+					a.linePick = 0
+				}
+				ln := a.detail.Lines[a.linePick]
+				for i, ep := range ln.Episodes {
+					i, ep, name := i, ep, ln.Name
+					label := ep.Name
+					if label == "" {
+						label = fmt.Sprintf("第 %d 集", i+1)
 					}
-					for i, ep := range ln.Episodes {
-						i, ep, name := i, ep, ln.Name
-						label := ep.Name
-						if label == "" {
-							label = fmt.Sprintf("第 %d 集", i+1)
-						}
-						on := i == a.playIndex && name == a.playLine
-						a.choice(c, th, "drawer-"+name+"-"+label, label, on, func() {
-							a.playEpisode(name, ep)
-							a.showDrawer = false
-						})
-					}
+					on := i == a.playIndex && name == a.playLine
+					a.stageChoice(c, th, "drawer-"+name+"-"+label, label, on, func() {
+						a.playEpisode(name, ep)
+						a.showDrawer = false
+					})
 				}
 			})
 		})
@@ -775,6 +790,18 @@ func (a *App) rememberVolume() {
 	}
 	a.savedVolume = a.volume
 	a.saveSettings()
+}
+
+func (a *App) syncDrawerLine() {
+	if a.detail == nil {
+		return
+	}
+	for i, ln := range a.detail.Lines {
+		if ln.Name == a.playLine {
+			a.linePick = i
+			return
+		}
+	}
 }
 
 func clock(sec float64) string {

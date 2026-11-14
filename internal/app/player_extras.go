@@ -687,7 +687,7 @@ func (a *App) keysOverlay(c *ui.Context, th *ui.Theme) {
 		ui.Column(c).Width(420).Padding(20, 24).Radius(14).Background(stageInk(false)).Gap(10).Children(func() {
 			ui.Row(c).AlignItems(ui.Center).Children(func() {
 				ui.Text(c, "快捷键").FontSize(fontTitle).Bold().TextColor(white).Grow(1)
-				a.iconBtn(c, "keys-close", iconClose, "关闭", 30, 16, white, func() { a.px.keys = false })
+				a.iconBtn(c, "keys-close", iconClose, "关闭", 44, 22, white, func() { a.px.keys = false })
 			})
 			for _, k := range keysHelp {
 				ui.Row(c).Gap(12).AlignItems(ui.Center).Children(func() {
@@ -699,8 +699,8 @@ func (a *App) keysOverlay(c *ui.Context, th *ui.Theme) {
 	})
 }
 
-// settingsPanel is the player's side panel: speed, picture, subtitles and
-// audio, and binge-watching.
+// settingsPanel is the player's side panel: picture, subtitles, audio, and
+// binge-watching. Speed stays on the bottom bar.
 func (a *App) settingsPanel(c *ui.Context, th *ui.Theme) {
 	white := th.AccentText
 	muted := white.Alpha(0.6)
@@ -710,26 +710,19 @@ func (a *App) settingsPanel(c *ui.Context, th *ui.Theme) {
 	chips := func(fn func()) { ui.Row(c).Gap(6).Wrap().Children(fn) }
 	ctl, hasCtl := a.controls()
 	ui.Column(c).Absolute().Top(0).Right(0).Bottom(0).Width(340).Padding(20, 18).Gap(10).
-		Background(stageInk(false)).Children(func() {
+		Background(stageInk(false)).TextColor(white).Children(func() {
 		ui.Row(c).AlignItems(ui.Center).Children(func() {
 			ui.Text(c, "播放设置").FontSize(fontTitle).Bold().TextColor(white).Grow(1)
-			a.iconBtn(c, "keys-open", iconList, "快捷键（?）", 32, 18, white, func() { a.px.keys = true; a.px.panel = false })
-			a.iconBtn(c, "panel-close", iconClose, "关闭", 32, 18, white, func() { a.px.panel = false })
+			a.iconBtn(c, "keys-open", iconList, "快捷键（?）", 44, 22, white, func() { a.px.keys = true; a.px.panel = false })
+			a.iconBtn(c, "panel-close", iconClose, "关闭", 44, 22, white, func() { a.px.panel = false })
 		})
 		ui.Scroll(c).Grow(1).Children(func() {
 			ui.Column(c).Gap(10).Padding(0, 4, 0, 0).Children(func() {
-				section("倍速")
-				chips(func() {
-					for _, r := range rateList {
-						a.choice(c, th, "rate:"+trimRate(r), trimRate(r), r == a.rate, func() { a.setRate(r) })
-					}
-				})
-
 				if hasCtl {
 					section("画面比例")
 					chips(func() {
 						for _, ch := range aspectChoices {
-							a.choice(c, th, "aspect:"+ch[1], ch[1], ch[0] == a.px.aspect, func() {
+							a.stageChoice(c, th, "aspect:"+ch[1], ch[1], ch[0] == a.px.aspect, func() {
 								a.setAspect(ctl, ch[0])
 								a.notify("画面比例 " + ch[1])
 							})
@@ -746,15 +739,15 @@ func (a *App) settingsPanel(c *ui.Context, th *ui.Theme) {
 								off = false
 							}
 						}
-						a.choice(c, th, "sub:0", "关闭", off, func() { a.selectTrack("sub", 0, "字幕已关闭") })
+						a.stageChoice(c, th, "sub:0", "关闭", off, func() { a.selectTrack("sub", 0, "字幕已关闭") })
 						for _, t := range subs {
-							a.choice(c, th, fmt.Sprint("sub:", t.ID), t.Label(), t.Selected, func() {
+							a.stageChoice(c, th, fmt.Sprint("sub:", t.ID), t.Label(), t.Selected, func() {
 								a.selectTrack("sub", t.ID, "字幕 "+t.Label())
 							})
 						}
 					})
 					ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-						if ui.Button(c, "加载字幕文件…").Clicked() {
+						if stageButton(c, th, "加载字幕文件…").Clicked() {
 							a.loadSubtitle()
 						}
 					})
@@ -769,7 +762,7 @@ func (a *App) settingsPanel(c *ui.Context, th *ui.Theme) {
 						section("音轨")
 						chips(func() {
 							for _, t := range audio {
-								a.choice(c, th, fmt.Sprint("aid:", t.ID), t.Label(), t.Selected, func() {
+								a.stageChoice(c, th, fmt.Sprint("aid:", t.ID), t.Label(), t.Selected, func() {
 									a.selectTrack("audio", t.ID, "音轨 "+t.Label())
 								})
 							}
@@ -784,12 +777,12 @@ func (a *App) settingsPanel(c *ui.Context, th *ui.Theme) {
 						func() { a.setPictureProp("contrast", a.px.contrast-5) },
 						func() { a.setPictureProp("contrast", a.px.contrast+5) })
 					ui.Row(c).Gap(8).Children(func() {
-						if ui.Button(c, "恢复画面").Clicked() {
+						if stageButton(c, th, "恢复画面").Clicked() {
 							a.setPictureProp("brightness", 0)
 							a.setPictureProp("contrast", 0)
 							a.setAspect(ctl, "")
 						}
-						if ui.Button(c, "截图（S）").Clicked() {
+						if stageButton(c, th, "截图（S）").Clicked() {
 							a.screenshot()
 						}
 					})
@@ -817,17 +810,17 @@ func (a *App) settingsPanel(c *ui.Context, th *ui.Theme) {
 						func() { skip.Outro = max(0, skip.Outro-5); a.setSkip(skip) },
 						func() { skip.Outro += 5; a.setSkip(skip) })
 					ui.Row(c).Gap(8).Wrap().Children(func() {
-						if ui.Button(c, "片头到此为止").Disabled(pos <= 0).Clicked() {
+						if stageButton(c, th, "片头到此为止").Disabled(pos <= 0).Clicked() {
 							skip.Intro = pos
 							a.setSkip(skip)
 							a.notify("片头设为 " + clock(pos))
 						}
-						if ui.Button(c, "片尾从此开始").Disabled(dur <= 0 || pos <= 0).Clicked() {
+						if stageButton(c, th, "片尾从此开始").Disabled(dur <= 0 || pos <= 0).Clicked() {
 							skip.Outro = dur - pos
 							a.setSkip(skip)
 							a.notify("片尾设为最后 " + clock(dur-pos))
 						}
-						if ui.Button(c, "清除").Disabled(skip.Intro == 0 && skip.Outro == 0).Clicked() {
+						if stageButton(c, th, "清除").Disabled(skip.Intro == 0 && skip.Outro == 0).Clicked() {
 							a.setSkip(skipRule{})
 						}
 					})
@@ -856,11 +849,11 @@ func (a *App) stepRow(c *ui.Context, th *ui.Theme, label, value string, down, up
 	white := th.AccentText
 	ui.Row(c.Key("step:" + label)).Gap(6).AlignItems(ui.Center).Children(func() {
 		ui.Text(c, label).FontSize(fontCaption).TextColor(white.Alpha(0.8)).Width(56)
-		if ui.Button(c, "−").Label(label + "减少").Clicked() {
+		if stageButton(c, th, "−").Label(label + "减少").Clicked() {
 			down()
 		}
 		ui.Text(c, value).FontSize(fontCaption).Bold().TextColor(white).Width(78).SingleLine()
-		if ui.Button(c, "+").Label(label + "增加").Clicked() {
+		if stageButton(c, th, "+").Label(label + "增加").Clicked() {
 			up()
 		}
 	})

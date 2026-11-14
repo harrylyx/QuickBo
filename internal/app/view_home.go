@@ -17,24 +17,15 @@ func (a *App) viewHome(c *ui.Context, th *ui.Theme) {
 	}
 	ui.Scroll(c).Grow(1).TrackScroll(&a.browseScroll).Children(func() {
 		ui.Column(c).Padding(20, pagePad, 28, pagePad).Gap(32).Children(func() {
-			// A reload keeps the old rows on screen until sources report in, so
-			// say it at the top where it can be seen, not only below the rows.
-			if a.loading && !searching && len(lanes) > 0 {
-				a.loadingRow(c, th, a.loadNote)
-			}
 			if !searching {
 				a.homeHero(c, th)
 			}
 			a.viewContinue(c, th)
-			if searching {
-				ui.Text(c, "搜索「"+strings.TrimSpace(a.committed)+"」").FontSize(fontHero).Bold()
-			}
 			if a.homeSearching && len(lanes) == 0 {
 				a.loadingRow(c, th, "正在搜索全部片源…")
 				return
 			}
 			if !searching && a.loading && len(lanes) == 0 {
-				a.loadingRow(c, th, "正在从各个源收集节目…")
 				ui.Text(c, "列出内容的源会逐个出现在下面，打不开的不会进侧栏。").TextColor(th.TextMuted).Wrap()
 				return
 			}
@@ -62,9 +53,6 @@ func (a *App) viewHome(c *ui.Context, th *ui.Theme) {
 			for _, lane := range lanes {
 				a.homeRail(c, th, lane)
 			}
-			if a.loading && !searching {
-				a.loadingRow(c, th, a.loadNote)
-			}
 		})
 	})
 }
@@ -72,13 +60,18 @@ func (a *App) viewHome(c *ui.Context, th *ui.Theme) {
 func (a *App) homeRail(c *ui.Context, th *ui.Theme, lane homeLane) {
 	row := ui.Column(c.Key("rail:" + lane.Key)).Gap(12)
 	row.Children(func() {
-		ui.Row(c).AlignItems(ui.Center).Gap(12).Children(func() {
+		st := a.railState(lane.Key)
+		ui.Row(c).AlignItems(ui.Center).Gap(8).Children(func() {
 			ui.Text(c, lane.Name).FontSize(fontHeadline).FontWeight(weightTitle).SingleLine()
 			ui.Column(c).Grow(1)
+			if st.MaxX > 8 {
+				a.railNudge(c, th, "rail-prev:"+lane.Key, iconBack, "向左翻", st, -1)
+				a.railNudge(c, th, "rail-next:"+lane.Key, iconChevronRight, "向右翻", st, 1)
+			}
 			// Rows are keyed by homepage rule; only a row named after a
 			// source has a list to open.
 			if a.canMore(lane) {
-				link := ui.Row(c.Key("all:" + lane.Key)).Gap(4).AlignItems(ui.Center).
+				link := ui.Row(c.Key("all:"+lane.Key)).Height(32).Padding(0, 10).Gap(4).AlignItems(ui.Center).
 					OnClick(func() { a.openMore(lane) }).Cursor(ui.CursorPointer).
 					Tooltip("查看更多").Label("查看更多")
 				fg := th.TextMuted
@@ -86,8 +79,8 @@ func (a *App) homeRail(c *ui.Context, th *ui.Theme, lane homeLane) {
 					fg = th.Text
 				}
 				link.Transition(ui.ElementTransition{Duration: 150 * time.Millisecond}).Children(func() {
-					ui.Text(c, "查看更多").FontSize(fontCaption).TextColor(fg).SingleLine()
-					ui.Icon(c, iconChevronRight).Size(12, 12).TextColor(fg)
+					ui.Text(c, "查看更多").FontSize(fontBody).TextColor(fg).SingleLine()
+					ui.Icon(c, iconChevronRight).Size(14, 14).TextColor(fg)
 				})
 			}
 		})
@@ -106,12 +99,17 @@ func (a *App) homeRail(c *ui.Context, th *ui.Theme, lane homeLane) {
 		if len(lane.Items) == 0 {
 			return
 		}
-		ui.ScrollBoth(c).MaxHeight(236).Children(func() {
-			ui.Row(c).Gap(12).Children(func() {
-				for _, item := range lane.Items {
-					a.railCard(c, th, lane.Key, item)
-				}
+		frame := ui.Box(c.Key("rail-frame:" + lane.Key)).FillWidth().Height(236)
+		frame.Children(func() {
+			sc := ui.ScrollBoth(c).FillWidth().Height(236).TrackScroll(st)
+			sc.Children(func() {
+				ui.Row(c).Gap(12).Children(func() {
+					for _, item := range lane.Items {
+						a.railCard(c, th, lane.Key, item)
+					}
+				})
 			})
+			a.railFade(c, th, st)
 		})
 	})
 }
@@ -139,7 +137,7 @@ func (a *App) railCard(c *ui.Context, th *ui.Theme, siteKey string, item model.I
 // The home banner rotates through the top of 最新影视.
 const (
 	heroCount  = 5
-	heroHeight = 380
+	heroHeight = 280
 	heroEvery  = 6 * time.Second
 	heroFade   = 600 * time.Millisecond
 )
@@ -211,7 +209,18 @@ func (a *App) homeHero(c *ui.Context, th *ui.Theme) {
 		Shadow(0, 18, 40, -18, ui.RGBA(0, 0, 0, 0.6))
 	hovered := hero.Hovered()
 	since := time.Since(a.heroAt)
-	if n > 1 && !hovered {
+	still := c.Preferences().ReduceMotion
+	if n > 1 {
+		switch {
+		case c.Shortcut(0, ui.KeyLeft):
+			a.heroStep(-1, n)
+			since = 0
+		case c.Shortcut(0, ui.KeyRight):
+			a.heroStep(1, n)
+			since = 0
+		}
+	}
+	if n > 1 && !hovered && !a.heroPaused && !still {
 		if since >= heroEvery {
 			a.heroStep(1, n)
 			since = 0
@@ -220,7 +229,7 @@ func (a *App) homeHero(c *ui.Context, th *ui.Theme) {
 		}
 	}
 	cross := float32(1)
-	if since < heroFade && a.heroPrev != a.heroIdx {
+	if !still && since < heroFade && a.heroPrev != a.heroIdx {
 		cross = float32(since) / float32(heroFade)
 		cross = cross * cross * (3 - 2*cross) // smoothstep
 		c.After(16 * time.Millisecond)
@@ -234,7 +243,7 @@ func (a *App) homeHero(c *ui.Context, th *ui.Theme) {
 			a.heroBackdrop(c, items[a.heroPrev], 1)
 		}
 		a.heroBackdrop(c, cur, cross)
-		ui.Row(c).Absolute().Left(0).Right(0).Top(0).Bottom(0).Padding(40, 56, 48, 56).Gap(40).AlignItems(ui.Center).Children(func() {
+		ui.Row(c).Absolute().Left(0).Right(0).Top(0).Bottom(0).Padding(16, 56, 20, 56).Gap(32).AlignItems(ui.Center).Children(func() {
 			ui.Column(c.Key("hero-copy:" + cur.ID)).Grow(1).Shrink(1).Gap(14).Opacity(0.25 + 0.75*cross).Children(func() {
 				ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 					ui.Row(c).Padding(4, 10).Radius(999).Background(th.Accent).Children(func() {
@@ -250,7 +259,7 @@ func (a *App) homeHero(c *ui.Context, th *ui.Theme) {
 					ui.Text(c, meta).FontSize(fontBody).TextColor(white.Alpha(0.72)).SingleLine()
 				}
 				ui.Row(c).Padding(10, 0, 0, 0).Children(func() {
-					if primaryPill(c, th, "hero-open", iconPlay, "查看详情").Clicked() {
+					if primaryPill(c, th, "hero-open", iconInfo, "查看详情").Clicked() {
 						a.openItem(laneKey, cur)
 					}
 				})
@@ -258,29 +267,34 @@ func (a *App) homeHero(c *ui.Context, th *ui.Theme) {
 			a.heroPoster(c, th, cur, laneKey)
 		})
 		if n > 1 {
-			if hovered {
-				for _, side := range []struct {
-					key, tip string
-					icon     *ui.SVG
-					delta    int
-					left     bool
-				}{{"hero-prev", "上一部", iconBack, -1, true}, {"hero-next", "下一部", iconChevronRight, 1, false}} {
-					side := side
-					holder := ui.Column(c).Absolute().Top(heroHeight/2 - 20)
-					if side.left {
-						holder = holder.Left(12)
-					} else {
-						holder = holder.Right(12)
-					}
-					holder.Children(func() {
-						glassButton(c, th, side.key, side.icon, side.tip, 40, white, func() { a.heroStep(side.delta, n) })
-					})
+			for _, side := range []struct {
+				key, tip string
+				icon     *ui.SVG
+				delta    int
+				left     bool
+			}{{"hero-prev", "上一部", iconBack, -1, true}, {"hero-next", "下一部", iconChevronRight, 1, false}} {
+				side := side
+				holder := ui.Column(c).Absolute().Top(heroHeight/2 - 20)
+				if side.left {
+					holder = holder.Left(12)
+				} else {
+					holder = holder.Right(12)
 				}
+				holder.Children(func() {
+					glassButton(c, th, side.key, side.icon, side.tip, 40, white, func() { a.heroStep(side.delta, n) })
+				})
 			}
-			ui.Row(c).Absolute().Left(56).Bottom(22).Gap(6).AlignItems(ui.Center).Children(func() {
+			glyph, tip := iconPause, "暂停轮播"
+			if a.heroPaused {
+				glyph, tip = iconPlay, "继续轮播"
+			}
+			ui.Column(c).Absolute().Right(16).Bottom(12).Children(func() {
+				glassButton(c, th, "hero-pause", glyph, tip, 40, white, func() { a.heroPaused = !a.heroPaused })
+			})
+			ui.Row(c).Absolute().Left(56).Bottom(10).Gap(0).AlignItems(ui.Center).Children(func() {
 				for i := range items {
 					i := i
-					dot := ui.Box(c.Key(fmt.Sprintf("hero-dot:%d", i))).Height(6).Radius(3).Cursor(ui.CursorPointer).
+					hit := ui.Column(c.Key(fmt.Sprintf("hero-dot:%d", i))).Size(44, 44).Center().Cursor(ui.CursorPointer).
 						OnClick(func() {
 							if i != a.heroIdx {
 								a.heroPrev, a.heroIdx, a.heroAt = a.heroIdx, i, time.Now()
@@ -290,7 +304,10 @@ func (a *App) homeHero(c *ui.Context, th *ui.Theme) {
 					if i == a.heroIdx {
 						w, fill = 22, white
 					}
-					dot.Width(dot.AnimateTo("w", w, ui.Snappy)).Background(dot.AnimateColor("bg", fill, colorEase))
+					hit.Children(func() {
+						bar := ui.Box(c).Height(6).Radius(3)
+						bar.Width(bar.AnimateTo("w", w, ui.Snappy)).Background(bar.AnimateColor("bg", fill, colorEase))
+					})
 				}
 			})
 		}
@@ -335,7 +352,7 @@ func (a *App) heroBackdrop(c *ui.Context, item model.Item, op float32) {
 // heroPoster is the banner's sharp poster, lifting a little under the
 // pointer and opening the title when clicked.
 func (a *App) heroPoster(c *ui.Context, th *ui.Theme, item model.Item, laneKey string) {
-	const w, h float32 = 200, 300
+	const w, h float32 = 152, 228
 	pic := model.ResolveURL("", item.Pic)
 	frame := ui.Column(c.Key("hero-poster:"+item.ID)).Width(w).Height(h).Radius(14).Clip().Shrink(0).
 		Border(1, ui.RGBA(255, 255, 255, 0.12)).Cursor(ui.CursorPointer).OnClick(func() { a.openItem(laneKey, item) })
@@ -347,4 +364,60 @@ func (a *App) heroPoster(c *ui.Context, th *ui.Theme, item model.Item, laneKey s
 	frame.Children(func() {
 		a.cover(c, th, pic, item.Title, w, h, nil, false)
 	})
+}
+
+func (a *App) railState(key string) *ui.ScrollState {
+	if a.railScroll == nil {
+		a.railScroll = map[string]*ui.ScrollState{}
+	}
+	st := a.railScroll[key]
+	if st == nil {
+		st = &ui.ScrollState{}
+		a.railScroll[key] = st
+	}
+	return st
+}
+
+// railNudge pages a poster row by about one viewport.
+func (a *App) railNudge(c *ui.Context, th *ui.Theme, key string, icon *ui.SVG, tip string, st *ui.ScrollState, dir float32) {
+	a.iconBtn(c, key, icon, tip, 32, 16, th.Text, func() {
+		step := float32(144 * 4)
+		x := st.X + dir*step
+		if x < 0 {
+			x = 0
+		}
+		if st.MaxX > 0 && x > st.MaxX {
+			x = st.MaxX
+		}
+		st.ScrollTo(x, 0, ui.Snappy)
+	})
+}
+
+// railFade darkens the ends of a poster row that still has more to scroll.
+func (a *App) railFade(c *ui.Context, th *ui.Theme, st *ui.ScrollState) {
+	edge := func(left bool) {
+		box := ui.Box(c).Absolute().Top(0).Bottom(0).Width(36).PassThrough()
+		if left {
+			box = box.Left(0)
+		} else {
+			box = box.Right(0)
+		}
+		angle := float32(90)
+		if left {
+			angle = 270
+		}
+		box.LinearGradient(ui.LinearGradient{
+			Angle: angle,
+			Stops: []ui.GradientStop{
+				{Color: th.Background, At: 0},
+				{Color: th.Background.Alpha(0), At: 1},
+			},
+		})
+	}
+	if st.X > 8 {
+		edge(true)
+	}
+	if st.MaxX-st.X > 8 {
+		edge(false)
+	}
 }

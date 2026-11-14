@@ -493,57 +493,24 @@ type sideGroup struct {
 	lives []liveItem
 }
 
-// sideGroups orders groups by the saved subscription list, putting sources
-// whose subscription is unknown into a final "其他" group.
+// sideGroups splits the sidebar into on-demand sources and live lists.
 func (a *App) sideGroups() []sideGroup {
-	var groups []sideGroup
-	index := map[string]int{}
-	for _, s := range a.subs {
-		name := s.Name
-		if name == "" {
-			name = shortRef(s.Ref)
-		}
-		if _, ok := index[name]; ok {
-			continue
-		}
-		index[name] = len(groups)
-		groups = append(groups, sideGroup{name: name})
-	}
-	other := -1
-	at := func(name string) int {
-		if name == "" {
-			if other < 0 {
-				other = len(groups)
-				index[""] = other
-				groups = append(groups, sideGroup{name: "其他"})
-			}
-			return other
-		}
-		if i, ok := index[name]; ok {
-			return i
-		}
-		index[name] = len(groups)
-		groups = append(groups, sideGroup{name: name})
-		return len(groups) - 1
-	}
+	vod := sideGroup{name: "片源"}
+	live := sideGroup{name: "直播"}
 	if a.catalog != nil {
-		for _, s := range a.catalog.Sites {
-			m := s.Meta()
-			i := at(a.groupName(m.API, m.Key, ""))
-			groups[i].sites = append(groups[i].sites, s)
-		}
+		vod.sites = append(vod.sites, a.catalog.Sites...)
 		for i, lv := range a.catalog.Lives {
-			j := at(a.groupName("", "", lv.URL))
-			groups[j].lives = append(groups[j].lives, liveItem{idx: i, entry: lv})
+			live.lives = append(live.lives, liveItem{idx: i, entry: lv})
 		}
 	}
-	kept := groups[:0]
-	for _, g := range groups {
-		if len(g.sites) > 0 || len(g.lives) > 0 {
-			kept = append(kept, g)
-		}
+	var groups []sideGroup
+	if len(vod.sites) > 0 {
+		groups = append(groups, vod)
 	}
-	return kept
+	if len(live.lives) > 0 {
+		groups = append(groups, live)
+	}
+	return groups
 }
 
 // sidebarOpenState returns a stable pointer to a subscription group's
@@ -562,18 +529,13 @@ func (a *App) sidebarOpenState(name string, selected bool) *bool {
 	return a.sidebarOpen[name]
 }
 
-// sideGroupTitle names a sidebar group so it reads as a list of sources:
-// "片源 · 订阅名 12", or 直播 when the group holds only live lists.
+// sideGroupTitle is the section name and how many entries it holds.
 func sideGroupTitle(g sideGroup) string {
-	kind := "片源"
-	if len(g.sites) == 0 && len(g.lives) > 0 {
-		kind = "直播"
+	name := strings.TrimSpace(g.name)
+	if name == "" {
+		name = "片源"
 	}
-	title := kind
-	if name := strings.TrimSpace(g.name); name != "" {
-		title += " · " + name
-	}
-	return fmt.Sprintf("%s  %d", title, len(g.sites)+len(g.lives))
+	return fmt.Sprintf("%s  %d", name, len(g.sites)+len(g.lives))
 }
 
 // groupHasSelection reports whether the sidebar selection is in g.
