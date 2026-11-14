@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"time"
 	"unicode"
@@ -988,6 +989,12 @@ func (a *App) removeBadge(c *ui.Context, th *ui.Theme, key, label string, remove
 const coverPreload = 600
 
 func (a *App) cover(c *ui.Context, th *ui.Theme, pic, title string, w, h float32, click func(), zoom bool) {
+	a.coverFit(c, th, pic, title, w, h, click, zoom, ui.Cover)
+}
+
+// coverFit is cover with how the picture fills its box: Contain shows the
+// whole of a landscape cover where Cover would crop it to its middle.
+func (a *App) coverFit(c *ui.Context, th *ui.Theme, pic, title string, w, h float32, click func(), zoom bool, fit ui.Fit) {
 	pic = model.ResolveURL("", pic)
 	if pic != "" && !a.failed[pic] {
 		// One element while loading and after, so the poster fades in over
@@ -1020,7 +1027,7 @@ func (a *App) cover(c *ui.Context, th *ui.Theme, pic, title string, w, h float32
 			if bmp == nil || in <= 0 {
 				return
 			}
-			img := ui.Image(c, bmp).Width(w).Height(h).Fit(ui.Cover).Transition(ui.ElementTransition{Duration: 180 * time.Millisecond})
+			img := ui.Image(c, bmp).Width(w).Height(h).Fit(fit).Transition(ui.ElementTransition{Duration: 180 * time.Millisecond})
 			if in < 1 {
 				img.Opacity(in)
 			}
@@ -1139,6 +1146,7 @@ func (a *App) viewDetail(c *ui.Context, th *ui.Theme) {
 						}
 					}
 					ui.Row(c).Gap(12).AlignItems(ui.Center).Padding(8, 0, 0, 0).Children(func() {
+						busy := a.offersBusy()
 						if a.linePick >= 0 && a.linePick < len(d.Lines) && len(d.Lines[a.linePick].Episodes) > 0 {
 							ep := d.Lines[a.linePick].Episodes[0]
 							ln := d.Lines[a.linePick].Name
@@ -1146,9 +1154,14 @@ func (a *App) viewDetail(c *ui.Context, th *ui.Theme) {
 							if ep.Name != "" {
 								label = "播放 " + ep.Name
 							}
-							if primaryPill(c, th, "detail-play", iconPlay, label).Clicked() {
+							if busy {
+								busyPlayPill(c, th, "detail-play", label)
+							} else if primaryPill(c, th, "detail-play", iconPlay, label).Clicked() {
 								a.playEpisode(ln, ep)
 							}
+						}
+						if busy {
+							ui.Text(c, "检测完成后自动选出最佳片源").FontSize(fontCaption).TextColor(th.TextMuted).SingleLine()
 						}
 						on := a.lib != nil && a.lib.hasFav(mediaKey(a.siteKey, d.ID))
 						tip, fg := "收藏", th.Text
@@ -1250,8 +1263,13 @@ func (a *App) viewDetail(c *ui.Context, th *ui.Theme) {
 					if label == "" {
 						label = "播放"
 					}
+					key := line.Name + "\n" + ep.URL + "\n" + label
+					if a.offersBusy() {
+						busyChoice(c, th, key, label)
+						continue
+					}
 					on := a.playLine == line.Name && label == currentEpisodeName(a)
-					a.choice(c, th, line.Name+"\n"+ep.URL+"\n"+label, label, on, func() {
+					a.choice(c, th, key, label, on, func() {
 						a.playEpisode(line.Name, ep)
 					})
 				}
@@ -1260,12 +1278,29 @@ func (a *App) viewDetail(c *ui.Context, th *ui.Theme) {
 	})
 }
 
+// portrait is the detail page's poster frame. Many CMS sites hand out
+// landscape covers: instead of cropping those to the middle of a 2:3
+// poster, the frame takes the picture's own shape once it has loaded —
+// the same area, widened — so the whole cover shows.
 func (a *App) portrait(c *ui.Context, th *ui.Theme, pic, title string, h float32) {
-	w := h * 2 / 3
-	frame := ui.Column(c).Width(w).Height(h).Radius(14).Clip().Background(th.Surface).
+	pic = model.ResolveURL("", pic)
+	w, ht := h*2/3, h
+	if bmp := a.cachedPoster(pic); bmp != nil {
+		if bw, bh := bmp.Size(); bw > 0 && bh > 0 {
+			aspect := float32(bw) / float32(bh)
+			if aspect > 16.0/9.0 {
+				aspect = 16.0 / 9.0
+			}
+			if aspect > 2.0/3.0 {
+				w = float32(math.Sqrt(float64(h * h * 2 / 3 * aspect)))
+				ht = w / aspect
+			}
+		}
+	}
+	frame := ui.Column(c).Width(w).Height(ht).Radius(14).Clip().Background(th.Surface).
 		Border(1, th.Border).Shadow(0, 24, 48, -12, ui.RGBA(0, 0, 0, 0.55))
 	frame.Children(func() {
-		a.cover(c, th, pic, title, w, h, nil, false)
+		a.coverFit(c, th, pic, title, w, ht, nil, false, ui.Contain)
 	})
 }
 

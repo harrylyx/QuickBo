@@ -433,6 +433,13 @@ type playOffer struct {
 	Reason     string
 }
 
+// offersBusy reports that the cross-source check has not published its final
+// pick. Until then the detail and siteKey are provisional, so starting
+// playback would point the player at a source the scan is about to replace.
+func (a *App) offersBusy() bool {
+	return a.offersScanning && len(a.offers) > 0
+}
+
 func (a *App) sortOffers() {
 	picked := ""
 	if a.offerPick >= 0 && a.offerPick < len(a.offers) {
@@ -597,6 +604,7 @@ func (a *App) openTitle(key string) {
 	a.linePick = 0
 	a.closePlayer()
 	a.offers = make([]playOffer, len(hits))
+	a.offersScanning = true
 	srcs := map[string]source.Source{}
 	for i, h := range hits {
 		a.offers[i] = playOffer{
@@ -759,6 +767,9 @@ func (a *App) loadOffers(og int, offers []playOffer, srcs map[string]source.Sour
 		if a.offerGen != og {
 			return
 		}
+		// The check is over and the pick below is final. This runs on the UI
+		// thread together with the pick, so no click can slip in between.
+		a.offersScanning = false
 		picked := ""
 		if a.offerPick >= 0 && a.offerPick < len(a.offers) {
 			picked = a.offers[a.offerPick].SiteKey

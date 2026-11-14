@@ -96,6 +96,32 @@ func primaryPill(c *ui.Context, th *ui.Theme, key string, icon *ui.SVG, label st
 	return b
 }
 
+// busyPlayPill is the disabled stand-in for the primary play button while
+// the cross-source check runs. It keeps the same size so the row does not
+// jump when the check finishes.
+func busyPlayPill(c *ui.Context, th *ui.Theme, key, label string) {
+	const tip = "正在检测片源，完成后才能播放"
+	b := ui.ButtonBase(c.Key(key)).Height(44).PaddingX(22).Gap(8).Radius(999).
+		AlignItems(ui.Center).Cursor(ui.CursorNotAllowed).Tooltip(tip).Label(label + "，" + tip)
+	b.Background(th.SurfaceHover).TextColor(th.TextMuted)
+	b.Children(func() {
+		ui.Icon(c, iconPlay).Size(14, 14).TextColor(th.TextMuted)
+		ui.Text(c, "正在检测片源…").FontSize(15).FontWeight(weightStrong).TextColor(th.TextMuted).SingleLine()
+	})
+}
+
+// busyChoice is an episode chip that cannot be picked while the check is
+// still replacing the detail underneath it.
+func busyChoice(c *ui.Context, th *ui.Theme, key, label string) {
+	const tip = "正在检测片源，完成后才能播放"
+	ui.Column(c.Key(key)).Padding(9, 14).Radius(10).
+		Background(th.SurfaceHover.Alpha(0.45)).Cursor(ui.CursorNotAllowed).
+		Tooltip(tip).Label(label + "，" + tip).
+		Children(func() {
+			ui.Text(c, label).FontSize(fontBody).TextColor(th.TextMuted.Alpha(0.6)).SingleLine()
+		})
+}
+
 // secondaryPill matches primaryPill's height, radius and type, with a quiet
 // fill so the pair lines up and the filled action stays the one primary.
 func secondaryPill(c *ui.Context, th *ui.Theme, key, label string) ui.Element {

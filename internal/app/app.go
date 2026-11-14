@@ -284,6 +284,9 @@ type App struct {
 	searchLookup   map[string][]titleHit
 	offers         []playOffer
 	offerPick      int
+	// offersScanning is true from openTitle until the cross-source check has
+	// published its final pick: the detail shown before that is provisional.
+	offersScanning bool
 	stats          map[string]sourceStat
 
 	gen int
@@ -739,6 +742,10 @@ func (a *App) openDetail(item model.Item) {
 	a.noteDetailFrom()
 	a.screen = screenDetail
 	a.offers = nil
+	a.offersScanning = false
+	// A scan from a previously opened aggregate title must not publish its
+	// stale pick over this detail.
+	a.offerGen++
 	a.detail = nil
 	a.detailTitle = item.Title
 	a.detailItem = item
@@ -778,6 +785,12 @@ func (a *App) openDetail(item model.Item) {
 }
 
 func (a *App) playEpisode(line string, ep model.Episode) {
+	// The detail shown during the cross-source check is provisional: the
+	// scan may still swap the source and its episode list. Guard every
+	// entry point, not just the disabled button on the detail page.
+	if a.screen == screenDetail && a.offersBusy() {
+		return
+	}
 	src := a.current()
 	if src == nil {
 		return

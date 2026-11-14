@@ -389,10 +389,23 @@ func (a *App) heroBackdrop(c *ui.Context, item model.Item, op float32) {
 }
 
 // heroPoster is the banner's sharp poster, lifting a little under the
-// pointer and opening the title when clicked.
+// pointer and opening the title when clicked. A landscape cover keeps the
+// banner's height and widens the frame instead of being cropped to a
+// poster, so the whole picture shows.
 func (a *App) heroPoster(c *ui.Context, th *ui.Theme, item model.Item, laneKey string) {
-	const w, h float32 = 152, 228
 	pic := model.ResolveURL("", item.Pic)
+	w, h := float32(152), float32(228)
+	if bmp := a.cachedPoster(pic); bmp != nil {
+		if bw, bh := bmp.Size(); bw > 0 && bh > 0 {
+			aspect := float32(bw) / float32(bh)
+			if aspect > 16.0/9.0 {
+				aspect = 16.0 / 9.0
+			}
+			if aspect > 2.0/3.0 {
+				w = h * aspect
+			}
+		}
+	}
 	frame := ui.Column(c.Key("hero-poster:"+item.ID)).Width(w).Height(h).Radius(14).Clip().Shrink(0).
 		Border(1, ui.RGBA(255, 255, 255, 0.12)).Cursor(ui.CursorPointer).OnClick(func() { a.openItem(laneKey, item) })
 	pose := ui.Pose{}
@@ -401,7 +414,7 @@ func (a *App) heroPoster(c *ui.Context, th *ui.Theme, item model.Item, laneKey s
 	}
 	frame.AnimatePose(pose, ui.Snappy).Shadow(0, 24, 48, -10, ui.RGBA(0, 0, 0, 0.6))
 	frame.Children(func() {
-		a.cover(c, th, pic, item.Title, w, h, nil, false)
+		a.coverFit(c, th, pic, item.Title, w, h, nil, false, ui.Contain)
 	})
 }
 
