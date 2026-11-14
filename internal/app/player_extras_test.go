@@ -311,6 +311,70 @@ func TestPipWindowControls(t *testing.T) {
 	}
 }
 
+func TestCapLiveRenderKeepsUltraHDSmall(t *testing.T) {
+	w, h := capLiveRender(3840, 2160)
+	if w != 1920 || h != 1080 {
+		t.Fatalf("4K live render %dx%d", w, h)
+	}
+	w, h = capLiveRender(1280, 720)
+	if w != 1280 || h != 720 {
+		t.Fatalf("720p should stay %dx%d", w, h)
+	}
+}
+
+func TestSeekByLeavesALiveStream(t *testing.T) {
+	a := New()
+	a.settingsPath = ""
+	a.fromLive = true
+	p := &fakePlay{pos: 10 * time.Second, dur: time.Hour}
+	a.player = p
+	a.seekBy(10)
+	a.seekBy(-10)
+	if len(p.seeks) != 0 {
+		t.Fatalf("live seek %v", p.seeks)
+	}
+}
+
+func TestMainWindowYieldsToThePip(t *testing.T) {
+	a := New()
+	a.settingsPath = ""
+	a.catalog = &source.Catalog{}
+	a.screen = screenLiveAgg
+	a.fromLive = true
+	a.px.pip = true
+	a.player = &fakePlay{}
+	tt := ui.NewTester(a.View, 1280, 800)
+	tt.Frame()
+	if tt.HasText("首页") || tt.HasText("分类") || tt.HasText("过滤频道") {
+		t.Fatalf("main window still drew the app: %q", tt.Texts())
+	}
+}
+
+func TestLivePipHasNoSeek(t *testing.T) {
+	a := New()
+	a.settingsPath = ""
+	a.fromLive = true
+	a.playTitle = "CCTV1"
+	a.screen = screenLiveAgg
+	a.px.pip = true
+	a.detail = &model.Detail{Title: "某剧", Lines: []model.Line{{Name: "l", Episodes: []model.Episode{{Name: "1"}, {Name: "2"}}}}}
+	a.playIndex = 0
+	p := &fakePlay{pos: 30 * time.Second, dur: 100 * time.Second}
+	a.player = p
+	tt := ui.NewTester(a.PipView, 480, 270)
+	tt.Move(240, 135)
+	tt.Frame()
+	if tt.HasText("后退 10 秒") || tt.HasText("快进 10 秒") || tt.HasText("下一集") {
+		t.Fatalf("live pip offered a seek: %q", tt.Texts())
+	}
+	if !tt.HasText("CCTV1") || !tt.HasText("暂停") {
+		t.Fatalf("texts %q", tt.Texts())
+	}
+	if len(p.seeks) != 0 {
+		t.Fatal("opening the live pip sought")
+	}
+}
+
 // A live stream's playhead only counts how long the player has been open.
 // The bar stays a still "直播" mark, while a recording keeps its times.
 func TestLivePlaybackSkipsTheTimeline(t *testing.T) {

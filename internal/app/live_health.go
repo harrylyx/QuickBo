@@ -16,6 +16,9 @@ const (
 	// re-opened on every attempt.
 	liveOKTTL   = 30 * time.Minute
 	liveFailTTL = 5 * time.Minute
+	// livePlayTimeout is how long a started line may stay unready before
+	// the aggregate player moves to the next address of the same channel.
+	livePlayTimeout = 8 * time.Second
 )
 
 // liveHealthState is the cached result of probing one live stream.
@@ -54,6 +57,9 @@ func (a *App) startChannel(ch live.Channel) {
 			a.startPlay(name, raw, headers, true)
 			a.screen = stay
 			a.fromLive = true
+			if stay == screenLiveAgg {
+				a.liveWatchAt = time.Now()
+			}
 			return
 		}
 		if !st.ok && time.Since(st.at) < liveFailTTL {
@@ -89,6 +95,9 @@ func (a *App) startChannel(ch live.Channel) {
 			a.startPlay(name, raw, headers, true)
 			a.screen = stay
 			a.fromLive = true
+			if stay == screenLiveAgg {
+				a.liveWatchAt = time.Now()
+			}
 		})
 	}()
 }
@@ -109,6 +118,7 @@ func (a *App) switchChannel(ch live.Channel) {
 			a.playErr = "没有可用的直播线路"
 			return
 		}
+		a.noteLiveSwitch(next)
 		a.startChannel(next)
 		return
 	}

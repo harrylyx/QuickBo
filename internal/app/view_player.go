@@ -149,7 +149,7 @@ func (a *App) togglePlay() {
 }
 
 func (a *App) seekBy(sec float64) {
-	if a.player == nil {
+	if a.player == nil || a.fromLive {
 		return
 	}
 	next := a.player.Position() + time.Duration(sec*float64(time.Second))
@@ -229,15 +229,43 @@ func (a *App) embedded() bool {
 // paintVideo draws an embedded player's frames. Its Draw callback runs again
 // every display frame while the video moves, without building the view: it
 // tells the player the size to render at and shows the newest frame.
+// liveRenderSide is the longest side a live frame is drawn at. The
+// software renderer copies every pixel; a 超清 frame at the window's full
+// retina size does not finish before the next one, so the picture drops
+// frames. The GPU scales this up to the window.
+const liveRenderSide = 1920
+
+func capLiveRender(w, h int) (int, int) {
+	if w <= 0 || h <= 0 {
+		return w, h
+	}
+	if m := max(w, h); m > liveRenderSide {
+		w = w * liveRenderSide / m
+		h = h * liveRenderSide / m
+	}
+	if w < 16 {
+		w = 16
+	}
+	if h < 16 {
+		h = 16
+	}
+	return w, h
+}
+
 func (a *App) paintVideo(c *ui.Context, vs player.VideoSource) {
 	if a.videoBM == nil {
 		a.videoBM = ui.NewBitmap(image.NewRGBA(image.Rect(0, 0, 1, 1)))
 	}
 	bm := a.videoBM
 	pl := a.player
+	live := a.fromLive
 	ui.Box(c).Absolute().Left(0).Right(0).Top(0).Bottom(0).Draw(func(p *ui.Painter, r ui.Rect) {
 		s := p.Scale()
-		vs.SetVideoSize(int(r.W*s+0.5), int(r.H*s+0.5))
+		w, h := int(r.W*s+0.5), int(r.H*s+0.5)
+		if live {
+			w, h = capLiveRender(w, h)
+		}
+		vs.SetVideoSize(w, h)
 		if img := vs.TakeFrame(); img != nil {
 			bm.Update(img)
 			a.videoShown = true
@@ -414,7 +442,7 @@ func (a *App) paintStage(c *ui.Context, th *ui.Theme, embed bool) {
 		radius = 18
 	}
 	stage.Radius(radius).Clip().Background(ui.Hex("#000000")).Children(func() {
-		if vs, ok := a.player.(player.VideoSource); ok {
+		if vs, ok := a.player.(player.VideoSource); ok && !a.px.pip {
 			a.paintVideo(c, vs)
 			// A click on the picture plays or pauses; a double click goes
 			// fullscreen. The controls drawn over it take their own clicks.
@@ -495,7 +523,11 @@ func (a *App) thinProgress(c *ui.Context, th *ui.Theme) {
 func (a *App) playerChrome(c *ui.Context, th *ui.Theme) {
 	white := th.AccentText
 	title, episode := a.overlayTitle()
-	ui.Column(c).Absolute().Left(0).Right(0).Top(0).Padding(20, 28).Gap(2).
+	// Keyed so a sibling inserted in front — the video layer, its click
+	// target, the buffering spinner — cannot take this bar's place.
+	// chromeFade animates position, and the bar would otherwise be drawn
+	// where that sibling was and slide back over the fade.
+	ui.Column(c.Key("chrome-top")).Absolute().Left(0).Right(0).Top(0).Padding(20, 28).Gap(2).
 		Gradient(ui.RGBA(0, 0, 0, 0.78), ui.Transparent, 180).
 		Transition(chromeFade(-8)).Children(func() {
 		ui.Row(c).Gap(12).AlignItems(ui.Center).Children(func() {
@@ -508,7 +540,7 @@ func (a *App) playerChrome(c *ui.Context, th *ui.Theme) {
 			})
 		})
 	})
-	ui.Column(c).Absolute().Left(0).Right(0).Bottom(0).Padding(20, 28, 18, 28).Gap(12).
+	ui.Column(c.Key("chrome-bottom")).Absolute().Left(0).Right(0).Bottom(0).Padding(20, 28, 18, 28).Gap(12).
 		Gradient(ui.Transparent, ui.RGBA(0, 0, 0, 0.88), 180).
 		Transition(chromeFade(8)).Children(func() {
 		a.seekBar(c, th)
@@ -520,10 +552,12 @@ func (a *App) playerChrome(c *ui.Context, th *ui.Theme) {
 				tip = "暂停"
 			}
 			a.iconBtn(c, "pp", glyph, tip, 64, 34, white, a.togglePlay)
-			a.iconBtn(c, "prev", iconPrev, "上一集", 44, 26, white, func() { a.playRelative(-1) })
-			a.iconBtn(c, "rew", iconRew, "后退 10 秒", 44, 26, white, func() { a.seekBy(-10) })
-			a.iconBtn(c, "fwd", iconFwd, "快进 10 秒", 44, 26, white, func() { a.seekBy(10) })
-			a.iconBtn(c, "next", iconNext, "下一集", 44, 26, white, func() { a.playRelative(1) })
+			if !a.fromLive {
+				a.iconBtn(c, "prev", iconPrev, "上一集", 44, 26, white, func() { a.playRelative(-1) })
+				a.iconBtn(c, "rew", iconRew, "后退 10 秒", 44, 26, white, func() { a.seekBy(-10) })
+				a.iconBtn(c, "fwd", iconFwd, "快进 10 秒", 44, 26, white, func() { a.seekBy(10) })
+				a.iconBtn(c, "next", iconNext, "下一集", 44, 26, white, func() { a.playRelative(1) })
+			}
 			vol := iconVol
 			vt := "静音"
 			if a.player != nil && a.player.Muted() {
@@ -544,7 +578,12 @@ func (a *App) playerChrome(c *ui.Context, th *ui.Theme) {
 			}
 			ui.Column(c).Grow(1)
 			a.rateBtn(c, th)
-			if !a.fromLive && a.detail != nil && len(a.detail.Lines) > 0 {
+			if a.fromLive && a.screen == screenLiveAgg && len(a.liveAggLines) > 0 {
+				a.iconBtn(c, "eps", iconList, "线路", 44, 26, white, func() {
+					a.showDrawer = !a.showDrawer
+					a.px.panel = false
+				})
+			} else if !a.fromLive && a.detail != nil && len(a.detail.Lines) > 0 {
 				a.iconBtn(c, "eps", iconList, "选集", 44, 26, white, func() {
 					a.showDrawer = !a.showDrawer
 					a.px.panel = false
@@ -611,7 +650,10 @@ func trimRate(r float64) string {
 func (a *App) overlayTitle() (string, string) {
 	title := strings.TrimSpace(a.playTitle)
 	episode := ""
-	if a.detail != nil && !a.fromLive && strings.TrimSpace(a.detail.Title) != "" {
+	if a.fromLive && a.liveAggName != "" {
+		title = a.liveAggName
+		episode = a.liveLineLabelAt(a.playURL)
+	} else if a.detail != nil && !a.fromLive && strings.TrimSpace(a.detail.Title) != "" {
 		title = a.detail.Title
 		episode = currentEpisodeName(a)
 		if a.playLine != "" {
@@ -748,6 +790,10 @@ func (a *App) liveMark(c *ui.Context, th *ui.Theme) {
 }
 
 func (a *App) episodeDrawer(c *ui.Context, th *ui.Theme) {
+	if a.fromLive && a.screen == screenLiveAgg {
+		a.liveLineDrawer(c, th)
+		return
+	}
 	ui.Column(c).Absolute().Top(0).Right(0).Bottom(0).Width(300).Padding(20, 18).Gap(12).
 		Background(stageInk(false)).Children(func() {
 		ui.Row(c).AlignItems(ui.Center).Children(func() {

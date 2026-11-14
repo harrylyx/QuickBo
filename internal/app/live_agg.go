@@ -7,11 +7,16 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/harrylyx/QuickBo/internal/live"
 	"github.com/harrylyx/QuickBo/internal/source"
 )
+
+// liveBuckets is the directory order: national channels, provincial
+// satellite channels, then everything else.
+var liveBuckets = []string{"央视", "地方卫视", "其他"}
 
 // liveLine is one address of an aggregated channel name.
 type liveLine struct {
@@ -80,12 +85,63 @@ func aggregateLives(lists []liveSnap) []liveAgg {
 		out = append(out, liveAgg{Name: name, Lines: a.lines, Sources: len(a.sources)})
 	}
 	sort.Slice(out, func(i, j int) bool {
-		if out[i].Sources != out[j].Sources {
-			return out[i].Sources > out[j].Sources
-		}
-		return out[i].Name < out[j].Name
+		return lessLiveName(out[i].Name, out[j].Name)
 	})
 	return out
+}
+
+// lessLiveName orders channel names so a number is read as a number:
+// CCTV1, CCTV2, CCTV10.
+func lessLiveName(a, b string) bool {
+	ar, br := []rune(a), []rune(b)
+	i, j := 0, 0
+	for i < len(ar) && j < len(br) {
+		if unicode.IsDigit(ar[i]) && unicode.IsDigit(br[j]) {
+			ia, ja := i, j
+			for i < len(ar) && unicode.IsDigit(ar[i]) {
+				i++
+			}
+			for j < len(br) && unicode.IsDigit(br[j]) {
+				j++
+			}
+			if c := cmpLiveDigits(ar[ia:i], br[ja:j]); c != 0 {
+				return c < 0
+			}
+			continue
+		}
+		if ar[i] != br[j] {
+			return ar[i] < br[j]
+		}
+		i++
+		j++
+	}
+	return len(ar) < len(br)
+}
+
+// cmpLiveDigits compares two digit runs as numbers, without overflowing on
+// a long run. Leading zeros do not change the value.
+func cmpLiveDigits(a, b []rune) int {
+	for len(a) > 1 && a[0] == '0' {
+		a = a[1:]
+	}
+	for len(b) > 1 && b[0] == '0' {
+		b = b[1:]
+	}
+	if len(a) != len(b) {
+		return len(a) - len(b)
+	}
+	return strings.Compare(string(a), string(b))
+}
+
+// liveBucket is the directory section a channel name belongs to.
+func liveBucket(name string) string {
+	if strings.Contains(name, "央视") || strings.Contains(strings.ToUpper(name), "CCTV") {
+		return "央视"
+	}
+	if strings.Contains(name, "卫视") {
+		return "地方卫视"
+	}
+	return "其他"
 }
 
 // nextAggChannel is the next address of the same name. A different name in
@@ -214,38 +270,99 @@ func (a *App) aggByName(name string) (liveAgg, bool) {
 	return liveAgg{}, false
 }
 
-// openLiveName replaces the directory with that name's addresses.
-func (a *App) openLiveName(name string) {
+// playLiveName starts the first address of a channel. The other addresses
+// stay in the player's line menu.
+func (a *App) playLiveName(name string) {
 	g, ok := a.aggByName(name)
-	if !ok {
+	if !ok || len(g.Lines) == 0 {
 		return
 	}
 	a.liveAggName = name
 	a.liveAggLines = linesAsChannels(g.Lines)
-	a.liveTries = 0
-	a.playErr = ""
-	a.playLoading = false
-	a.livePlayGen++
-	a.closePlayer()
-	a.fromLive = false
-}
-
-// closeLiveName stops playback and returns to the channel directory.
-func (a *App) closeLiveName() {
-	a.liveAggName = ""
-	a.liveAggLines = nil
-	a.liveTries = 0
-	a.playErr = ""
-	a.playLoading = false
-	a.livePlayGen++
-	a.closePlayer()
-	a.fromLive = false
+	a.showDrawer = false
+	a.playLiveLine(g.Lines[0])
 }
 
 func (a *App) playLiveLine(line liveLine) {
+	g, ok := a.aggByName(line.Name)
+	if ok {
+		a.liveAggName = line.Name
+		a.liveAggLines = linesAsChannels(g.Lines)
+		for i, ln := range g.Lines {
+			if ln.URL == line.URL {
+				a.liveLineAt = i
+				break
+			}
+		}
+	}
 	a.liveTries = 0
 	a.playErr = ""
+	a.liveWatchAt = time.Time{}
 	a.startChannel(live.Channel{Name: line.Name, URL: line.URL, Group: line.Group, Logo: line.Logo})
+}
+
+// noteLiveSwitch tells the viewer the player moved to another address on
+// its own. A hand-picked line does not come through here.
+func (a *App) noteLiveSwitch(ch live.Channel) {
+	label := a.liveLineLabelAt(ch.URL)
+	if label == "" {
+		label = "下一条线路"
+	}
+	a.notify("播放超时，已换到 " + label)
+	a.px.noticeUntil = time.Now().Add(2500 * time.Millisecond)
+	if g, ok := a.aggByName(a.liveAggName); ok {
+		for i, ln := range g.Lines {
+			if ln.URL == ch.URL {
+				a.liveLineAt = i
+				break
+			}
+		}
+	}
+}
+
+func (a *App) liveLineLabelAt(url string) string {
+	g, ok := a.aggByName(a.liveAggName)
+	if !ok {
+		return ""
+	}
+	for _, ln := range g.Lines {
+		if ln.URL == url {
+			return liveLineLabel(ln)
+		}
+	}
+	return ""
+}
+
+// watchLivePlayback moves to the next address when the one that just
+// opened never becomes ready, or the player reports it failed.
+func (a *App) watchLivePlayback() {
+	if a.screen != screenLiveAgg || !a.fromLive || a.playLoading || a.player == nil {
+		return
+	}
+	if len(a.liveAggLines) < 2 {
+		return
+	}
+	failed := a.player.Err() != nil
+	if !failed && a.player.Ready() {
+		a.liveWatchAt = time.Time{}
+		return
+	}
+	if a.liveWatchAt.IsZero() {
+		a.liveWatchAt = time.Now()
+	}
+	if !failed && time.Since(a.liveWatchAt) < livePlayTimeout {
+		return
+	}
+	ch := a.liveAggLines[0]
+	if a.liveLineAt >= 0 && a.liveLineAt < len(a.liveAggLines) {
+		ch = a.liveAggLines[a.liveLineAt]
+	}
+	if a.liveHealth == nil {
+		a.liveHealth = map[string]liveHealthState{}
+	}
+	a.liveHealth["live:"+strings.TrimSpace(ch.URL)] = liveHealthState{ok: false, at: time.Now()}
+	a.closePlayer()
+	a.switchChannel(ch)
 }
 
 func liveLineLabel(line liveLine) string {
@@ -264,11 +381,22 @@ func (a *App) liveFullscreen() bool {
 	return (a.screen == screenLive || a.screen == screenLiveAgg) && a.fullscreen && a.fromLive && a.embedded()
 }
 
-func (a *App) viewLiveAgg(c *ui.Context, th *ui.Theme) {
-	if a.liveAggName != "" {
-		a.viewLiveLines(c, th)
-		return
+func (a *App) aggBuckets() [3][]liveAgg {
+	var out [3][]liveAgg
+	for _, g := range a.visibleAgg() {
+		switch liveBucket(g.Name) {
+		case "央视":
+			out[0] = append(out[0], g)
+		case "地方卫视":
+			out[1] = append(out[1], g)
+		default:
+			out[2] = append(out[2], g)
+		}
 	}
+	return out
+}
+
+func (a *App) viewLiveAgg(c *ui.Context, th *ui.Theme) {
 	if a.liveAggLoading && len(a.liveAggs) == 0 {
 		ui.Text(c, "正在读取直播列表。").TextColor(th.TextMuted).Wrap()
 		return
@@ -290,74 +418,82 @@ func (a *App) viewLiveAgg(c *ui.Context, th *ui.Theme) {
 		a.emptyState(c, th, "没有频道", body)
 		return
 	}
-	ui.Column(c).Grow(1).Gap(12).Children(func() {
-		if a.liveAggMiss > 0 {
-			ui.Text(c, fmt.Sprintf("%d 份列表没读到", a.liveAggMiss)).FontSize(fontCaption).TextColor(th.TextMuted)
+	playing := (a.player != nil && a.fromLive) || (a.playLoading && a.fromLive)
+	buckets := a.aggBuckets()
+	ui.Row(c).Grow(1).Gap(12).AlignItems(ui.Stretch).Children(func() {
+		col := ui.Column(c)
+		if playing {
+			col = col.Width(300)
+		} else {
+			col = col.Grow(1)
 		}
-		ui.Text(c, fmt.Sprintf("%d 个频道", len(shown))).FontSize(fontCaption).TextColor(th.TextMuted)
-		ui.List(c, &a.aggList, len(shown), func(i int) {
-			g := shown[i]
-			label := fmt.Sprintf("%s · %d 个源", g.Name, g.Sources)
-			row := ui.Row(c).FillWidth().Padding(8, 12).Radius(8).Gap(12).AlignItems(ui.Center).
-				OnClick(func() { a.openLiveName(g.Name) }).Cursor(ui.CursorPointer)
-			bg := ui.Transparent
-			if row.Hovered() {
-				bg = th.SurfaceHover
+		col.Gap(12).Children(func() {
+			if a.liveAggMiss > 0 {
+				ui.Text(c, fmt.Sprintf("%d 份列表没读到", a.liveAggMiss)).FontSize(fontCaption).TextColor(th.TextMuted)
 			}
-			row.Background(bg).Children(func() {
-				ui.Text(c, label).Grow(1).SingleLine()
+			ui.Scroll(c).Grow(1).Children(func() {
+				ui.Column(c).Gap(18).Children(func() {
+					for i, name := range liveBuckets {
+						items := buckets[i]
+						if len(items) == 0 {
+							continue
+						}
+						name, items := name, items
+						ui.Column(c).Gap(8).Children(func() {
+							ui.Text(c, name).FontSize(fontTitle).Bold()
+							for _, g := range items {
+								g := g
+								onAir := a.fromLive && a.liveAggName == g.Name
+								row := ui.Row(c).FillWidth().Padding(8, 12).Radius(8).Gap(12).AlignItems(ui.Center).
+									OnClick(func() { a.playLiveName(g.Name) }).Cursor(ui.CursorPointer)
+								bg := ui.Transparent
+								switch {
+								case onAir:
+									bg = th.Accent.Alpha(0.16)
+								case row.Hovered():
+									bg = th.SurfaceHover
+								}
+								row.Background(bg).Children(func() {
+									ui.Text(c, g.Name).Grow(1).SingleLine()
+								})
+							}
+						})
+					}
+				})
 			})
-		}).Grow(1)
+		})
+		if playing {
+			ui.Column(c).Grow(1).Children(func() {
+				a.paintStage(c, th, true)
+			})
+		}
 	})
 }
 
-func (a *App) viewLiveLines(c *ui.Context, th *ui.Theme) {
+// liveLineDrawer lists the addresses of the channel that is on, the same
+// way a show lists its lines.
+func (a *App) liveLineDrawer(c *ui.Context, th *ui.Theme) {
 	g, ok := a.aggByName(a.liveAggName)
-	if !ok {
-		a.closeLiveName()
-		a.viewLiveAgg(c, th)
-		return
-	}
-	ui.Column(c).Grow(1).Gap(12).Children(func() {
-		if ui.Button(c, "返回").Clicked() {
-			a.closeLiveName()
+	ui.Column(c).Absolute().Top(0).Right(0).Bottom(0).Width(300).Padding(20, 18).Gap(12).
+		Background(stageInk(false)).Children(func() {
+		ui.Row(c).AlignItems(ui.Center).Children(func() {
+			ui.Text(c, "线路").FontSize(fontTitle).Bold().TextColor(th.AccentText).Grow(1)
+			a.iconBtn(c, "close-eps", iconBack, "关闭", 44, 22, th.AccentText, func() { a.showDrawer = false })
+		})
+		if !ok || len(g.Lines) == 0 {
+			ui.Text(c, "没有其他线路").TextColor(th.AccentText.Alpha(0.7))
 			return
 		}
-		if a.playErr != "" && a.player == nil && !a.playLoading {
-			a.note(c, th, a.playErr, true)
-		}
-		playing := (a.player != nil && a.fromLive) || (a.playLoading && a.fromLive)
-		ui.Row(c).Grow(1).Gap(12).AlignItems(ui.Stretch).Children(func() {
-			col := ui.Column(c)
-			if playing {
-				col = col.Width(300)
-			} else {
-				col = col.Grow(1)
-			}
-			col.Children(func() {
-				ui.Text(c, fmt.Sprintf("%d 条线路", len(g.Lines))).FontSize(fontCaption).TextColor(th.TextMuted)
-				ui.List(c, &a.aggLineList, len(g.Lines), func(i int) {
-					line := g.Lines[i]
-					onAir := a.fromLive && a.playURL == line.URL
-					row := ui.Row(c).FillWidth().Padding(8, 12).Radius(8).Gap(12).AlignItems(ui.Center).
-						OnClick(func() { a.playLiveLine(line) }).Cursor(ui.CursorPointer)
-					bg := ui.Transparent
-					switch {
-					case onAir:
-						bg = th.Accent.Alpha(0.16)
-					case row.Hovered():
-						bg = th.SurfaceHover
-					}
-					row.Background(bg).Children(func() {
-						ui.Text(c, liveLineLabel(line)).Grow(1).SingleLine()
+		ui.Scroll(c).Grow(1).Children(func() {
+			ui.Column(c).Gap(6).Children(func() {
+				for i, ln := range g.Lines {
+					i, ln := i, ln
+					a.stageChoice(c, th, "live-line:"+ln.URL, liveLineLabel(ln), i == a.liveLineAt, func() {
+						a.showDrawer = false
+						a.playLiveLine(ln)
 					})
-				}).Grow(1)
+				}
 			})
-			if playing {
-				ui.Column(c).Grow(1).Children(func() {
-					a.paintStage(c, th, true)
-				})
-			}
 		})
 	})
 }

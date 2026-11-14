@@ -14,8 +14,11 @@ import (
 // videoFake is an embedded player (player.VideoSource) that hands out one
 // solid red frame at whatever size the view asks for.
 type videoFake struct {
-	w, h  int
-	taken bool
+	w, h      int
+	taken     bool
+	notReady  bool
+	buffering bool
+	playing   bool
 }
 
 func (f *videoFake) Load(context.Context, string, map[string]string) error { return nil }
@@ -28,10 +31,10 @@ func (f *videoFake) SetMuted(bool) error                                   { ret
 func (f *videoFake) SetFullscreen(bool) error                              { return nil }
 func (f *videoFake) Fullscreen() bool                                      { return false }
 func (f *videoFake) Muted() bool                                           { return false }
-func (f *videoFake) Ready() bool                                           { return true }
-func (f *videoFake) Playing() bool                                         { return false }
+func (f *videoFake) Ready() bool                                           { return !f.notReady }
+func (f *videoFake) Playing() bool                                         { return f.playing }
 func (f *videoFake) Ended() bool                                           { return false }
-func (f *videoFake) Buffering() bool                                       { return false }
+func (f *videoFake) Buffering() bool                                       { return f.buffering }
 func (f *videoFake) Position() time.Duration                               { return 0 }
 func (f *videoFake) Duration() time.Duration                               { return time.Minute }
 func (f *videoFake) Buffered() time.Duration                               { return 0 }
@@ -74,4 +77,54 @@ func TestEmbeddedVideoDrawsInsideTheWindow(t *testing.T) {
 	if !a.embedded() {
 		t.Fatal("embedded() false for a VideoSource player")
 	}
+}
+
+// The control bars fade by animating their position. They have to keep a
+// key: the video layer and the buffering spinner are inserted in front of
+// them, and without a key each bar would be drawn where the previous
+// sibling sat — the seek bar up at the title — then slide back.
+func TestSeekBarStaysPutWhenPlaybackStarts(t *testing.T) {
+	a := New()
+	a.settingsPath = ""
+	a.catalog = &source.Catalog{}
+	a.screen = screenPlay
+	a.playLoading = true
+	a.controlsUntil = time.Now().Add(time.Hour)
+	tt := ui.NewTester(a.View, 1200, 800)
+	at := func(label string) ui.Rect {
+		t.Helper()
+		r, ok := tt.Find(label)
+		if !ok {
+			t.Fatalf("missing %q: %q", label, tt.Texts())
+		}
+		return r
+	}
+	seek0, back0 := at("00:00"), at("返回")
+	same := func(tag, label string, want ui.Rect) {
+		t.Helper()
+		got := at(label)
+		if d := got.Y - want.Y; d > 1 || d < -1 {
+			t.Fatalf("%s: %s moved from y=%.1f to y=%.1f", tag, label, want.Y, got.Y)
+		}
+	}
+	check := func(tag string) {
+		t.Helper()
+		tt.Frame()
+		same(tag, "00:00", seek0)
+		same(tag, "返回", back0)
+		tt.Advance(250 * time.Millisecond)
+		same(tag+" settled", "00:00", seek0)
+		same(tag+" settled", "返回", back0)
+	}
+	fake := &videoFake{playing: true}
+	a.playLoading = false
+	a.player = fake
+	check("player attached")
+	fake.notReady = true
+	fake.buffering = true
+	a.bufferingSince = time.Now().Add(-time.Second)
+	check("buffering spinner")
+	fake.notReady = false
+	fake.buffering = false
+	check("playback ready")
 }

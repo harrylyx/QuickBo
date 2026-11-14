@@ -35,7 +35,16 @@ func (a *App) animateCard(card, frame ui.Element, hot, light bool) {
 // rail, a full-bleed hero, and a poster wall. Red is reserved for the
 // primary action and for progress.
 func (a *App) View(c *ui.Context) {
+	if a.px.pip {
+		// A click can order this window front after enterPip hid it. Stay
+		// hidden while the picture is in the small window.
+		if a.win != nil && a.win.IsVisible() {
+			a.win.Hide()
+		}
+		return
+	}
 	th := a.useTheme(c)
+	a.watchLivePlayback()
 	a.playerKeys(c)
 	if a.catalog == nil {
 		a.viewWelcome(c, th)
@@ -543,7 +552,7 @@ func (a *App) viewTop(c *ui.Context, th *ui.Theme) {
 			})
 		}
 		ui.Column(c).Grow(1)
-		if a.screen == screenBrowse || a.screen == screenHome || a.screen == screenLive || a.screen == screenLiveAgg && a.liveAggName == "" {
+		if a.screen == screenBrowse || a.screen == screenHome || a.screen == screenLive || a.screen == screenLiveAgg {
 			ph := "搜索片名"
 			if a.screen == screenHome {
 				ph = "搜索全部片源"
@@ -663,9 +672,6 @@ func (a *App) headline() string {
 	case screenCats:
 		return "分类"
 	case screenLiveAgg:
-		if a.liveAggName != "" {
-			return a.liveAggName
-		}
 		return "直播"
 	case screenHistory:
 		return "观看历史"

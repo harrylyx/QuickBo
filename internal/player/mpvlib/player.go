@@ -117,6 +117,13 @@ func (p *Player) Load(_ context.Context, raw string, headers map[string]string) 
 		{"keep-open", "yes"},
 		{"idle", "yes"},
 		{"network-timeout", "15"},
+		// A 超清 live stream stutters when the demuxer only keeps a second
+		// ahead of the clock. Ten seconds of readahead rides out the bursts
+		// without turning the stream into a recording.
+		{"cache", "yes"},
+		{"demuxer-readahead-secs", "10"},
+		{"demuxer-max-bytes", "67108864"},
+		{"demuxer-max-back-bytes", "8388608"},
 		{"terminal", "no"},
 		{"osc", "no"},
 		{"input-default-bindings", "no"},

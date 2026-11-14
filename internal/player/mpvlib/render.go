@@ -120,10 +120,30 @@ func (t *renderTarget) render(ctx unsafe.Pointer, img *image.RGBA) int32 {
 }
 
 // opaque sets every pixel's fourth byte to 255. "rgb0" leaves it undefined,
-// and image.RGBA reads it as alpha.
+// and image.RGBA reads it as alpha. A 4K frame is eight million pixels, so
+// this walks words instead of bytes; the CPU renderer was missing frames on
+// 超清 live while it filled alpha one byte at a time.
 func opaque(pix []byte) {
-	for i := 3; i < len(pix); i += 4 {
-		pix[i] = 0xff
+	const alpha = uint32(0xFF) << 24 // little-endian RGBA: A is the high byte
+	i := 0
+	for i < len(pix) && uintptr(unsafe.Pointer(&pix[i]))%4 != 0 {
+		if i%4 == 3 {
+			pix[i] = 0xff
+		}
+		i++
+	}
+	n := (len(pix) - i) / 4
+	if n > 0 {
+		words := unsafe.Slice((*uint32)(unsafe.Pointer(&pix[i])), n)
+		for k := range words {
+			words[k] |= alpha
+		}
+		i += n * 4
+	}
+	for ; i < len(pix); i++ {
+		if i%4 == 3 {
+			pix[i] = 0xff
+		}
 	}
 }
 

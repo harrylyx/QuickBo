@@ -488,6 +488,17 @@ func (a *App) enterPip() {
 	a.px.pip, a.px.pipWin = true, w
 	a.win.Hide()
 	w.Show()
+	// The click that opened the small window orders the main window front
+	// again once the mouse event finishes, which left the live page on
+	// screen. Hide it once that event is over.
+	w.Update(func() {
+		if a.px.pip && a.win != nil {
+			a.win.Hide()
+			if pw := a.px.pipWin; pw != nil {
+				pw.Focus()
+			}
+		}
+	})
 }
 
 // exitPip closes the floating window and shows the main one again.
@@ -511,6 +522,8 @@ func (a *App) exitPip() {
 // PipView is the floating window's content.
 func (a *App) PipView(c *ui.Context) {
 	th := a.useTheme(c)
+	// The main window is hidden, so the failover watch has to run here.
+	a.watchLivePlayback()
 	a.playerKeys(c)
 	if !a.px.pip || a.player == nil {
 		ui.Box(c).Fill().Background(ui.Hex("#000000"))
@@ -570,11 +583,15 @@ func (a *App) viewPip(c *ui.Context, th *ui.Theme) {
 			if a.player.Playing() {
 				glyph, tip = iconPause, "暂停"
 			}
-			a.iconBtn(c, "pip-rew", iconRew, "后退 10 秒", 36, 20, white, func() { a.seekBy(-10) })
+			if !a.fromLive {
+				a.iconBtn(c, "pip-rew", iconRew, "后退 10 秒", 36, 20, white, func() { a.seekBy(-10) })
+			}
 			a.pipPlayButton(c, th, glyph, tip)
-			a.iconBtn(c, "pip-fwd", iconFwd, "快进 10 秒", 36, 20, white, func() { a.seekBy(10) })
-			if a.hasEpisode(1) {
-				a.iconBtn(c, "pip-next", iconNext, "下一集", 36, 20, white, func() { a.playRelative(1) })
+			if !a.fromLive {
+				a.iconBtn(c, "pip-fwd", iconFwd, "快进 10 秒", 36, 20, white, func() { a.seekBy(10) })
+				if a.hasEpisode(1) {
+					a.iconBtn(c, "pip-next", iconNext, "下一集", 36, 20, white, func() { a.playRelative(1) })
+				}
 			}
 		})
 		ui.Column(c.Key("pip-bottom")).Absolute().Left(10).Right(10).Bottom(8).Gap(2).Transition(fade).Children(func() {

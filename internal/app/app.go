@@ -271,8 +271,8 @@ type App struct {
 	liveAggLoading bool
 	liveAggMiss    int
 	liveAggToken   int
-	aggList        ui.ListState
-	aggLineList    ui.ListState
+	liveLineAt     int
+	liveWatchAt    time.Time
 	lookup         map[string][]titleHit
 	searchLookup   map[string][]titleHit
 	offers         []playOffer
@@ -915,6 +915,12 @@ func (a *App) back() {
 	a.detailLoading = false
 	a.closePlayer()
 	switch a.screen {
+	case screenLiveAgg:
+		a.fromLive = false
+		a.playErr = ""
+		a.showDrawer = false
+		a.liveWatchAt = time.Time{}
+		return
 	case screenPlay:
 		if a.fromLive {
 			a.screen = screenLive
