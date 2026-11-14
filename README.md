@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/harrylyx/QuickBo/releases"><img src="https://img.shields.io/github/v/release/harrylyx/QuickBo?label=下载&color=2ea44f" alt="下载" /></a>
+  <a href="https://github.com/harrylyx/QuickBo/releases"><img src="https://img.shields.io/github/v/release/harrylyx/QuickBo?label=%E4%B8%8B%E8%BD%BD&color=2ea44f" alt="下载" /></a>
   <a href="https://github.com/harrylyx/QuickBo/actions/workflows/test.yml"><img src="https://github.com/harrylyx/QuickBo/actions/workflows/test.yml/badge.svg" alt="Test" /></a>
   <img src="https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white" alt="Go" />
   <img src="https://img.shields.io/badge/UI-mygo%20原生-8A2BE2" alt="mygo" />
