@@ -32,27 +32,55 @@ func TestShots(t *testing.T) {
 			mode = "light"
 		}
 		for _, sc := range []struct {
-			name string
-			set  func(a *App)
+			name  string
+			set   func(a *App)
+			empty bool
 		}{
-			{"home", func(a *App) {}},
-			{"detail", shotDetail},
-			{"sources", func(a *App) { a.screen, a.sideSel, a.lastSide = screenSources, "sources", "sources" }},
-			{"play", shotPlay},
+			{"welcome", func(a *App) {}, true},
+			{"home", func(a *App) {}, false},
+			{"detail", shotDetail, false},
+			{"sources", func(a *App) { a.screen, a.sideSel, a.lastSide = screenSources, "sources", "sources" }, false},
+			{"play", shotPlay, false},
 			{"settings", func(a *App) {
 				a.settingsOpen = true
 				for i := 1; i <= 40; i++ {
 					a.blacklist = append(a.blacklist, "关键字"+itoa(i))
 				}
-			}},
+			}, false},
 		} {
-			a := shotApp(light)
+			var a *App
+			if sc.empty {
+				// The welcome screen is the empty shell: no catalog, no
+				// subscriptions, in both appearances.
+				a = New()
+				a.settingsPath = ""
+				a.appearance = appearanceDark
+				if light {
+					a.appearance = appearanceLight
+				}
+			} else {
+				a = shotApp(light)
+			}
 			sc.set(a)
 			tt := ui.NewTester(a.View, 1280, 820)
 			for i := 0; i < 4; i++ {
 				tt.Advance(200 * time.Millisecond)
 			}
 			savePNG(t, filepath.Join(dir, mode+"-"+sc.name+".png"), tt.Image())
+			if sc.empty {
+				// The same screen at the minimum window and at a large
+				// desktop, where the grid has to hold its edges.
+				for _, size := range []struct {
+					w, h int
+					tag  string
+				}{{960, 640, "960"}, {1440, 900, "1440"}} {
+					nt := ui.NewTester(a.View, size.w, size.h)
+					for i := 0; i < 4; i++ {
+						nt.Advance(200 * time.Millisecond)
+					}
+					savePNG(t, filepath.Join(dir, mode+"-welcome-"+size.tag+".png"), nt.Image())
+				}
+			}
 		}
 	}
 }

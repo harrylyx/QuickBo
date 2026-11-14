@@ -118,53 +118,6 @@ func (a *App) View(c *ui.Context) {
 	a.viewSettings(c, th)
 }
 
-func (a *App) viewWelcome(c *ui.Context, th *ui.Theme) {
-	welcomeTransition := ui.ElementTransition{Duration: 520 * time.Millisecond, Ease: ui.EaseOut}
-	if !a.welcomeEntered {
-		welcomeTransition.Enter = &ui.Motion{Y: 16, Opacity: 0, Scale: 1}
-	}
-	ui.Box(c).Fill().Children(func() {
-		ui.Box(c).Fill().RadialGradient(ui.RadialGradient{
-			Center: ui.Point{X: 0.0, Y: 1},
-			Radius: 720,
-			Stops: []ui.GradientStop{
-				{Color: th.Accent.Alpha(0.16), At: 0},
-				{Color: ui.Transparent, At: 0.72},
-			},
-		})
-		ui.Column(c).Fill().Padding(48, 72).Children(func() {
-			ui.Column(c).Grow(1)
-			ui.Column(c.Key("welcome-hero")).Width(520).Gap(16).Transition(welcomeTransition).Children(func() {
-				ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
-					ui.Box(c).Width(18).Height(2).Radius(1).Background(th.Accent)
-					ui.Text(c, "TVBox / FongMi 播放器").FontSize(fontCaption).TextColor(th.TextMuted)
-				})
-				ui.Row(c).Gap(18).AlignItems(ui.Center).Children(func() {
-					logoMark(c, th, 72)
-					ui.Text(c, "QuickBo").FontSize(60).Bold()
-				})
-				ui.Text(c, "添加订阅，开始播放。").FontSize(fontHeadline)
-				ui.Text(c, "不内置任何片源。JSON、XML、一部分 JS 和 XBPQ 可以直接用；JAR/DEX 会列出来，但本版不执行 jar。").TextColor(th.TextMuted).Wrap()
-				if a.loading {
-					a.loadingRow(c, th, "正在读取配置…")
-				}
-				if a.loadErr != "" {
-					a.noteWithActions(c, th, a.loadErr, true, stateAction{label: "重试订阅", primary: true, click: a.retrySubs})
-				}
-				ui.Row(c).Gap(10).Padding(8, 0, 0, 0).Children(func() {
-					if primaryPill(c, th, "welcome-add", nil, "添加订阅").Clicked() {
-						a.openSubs()
-					}
-					if secondaryPill(c, th, "welcome-file", "打开本地文件").Clicked() {
-						a.pickFile()
-					}
-				})
-			})
-		})
-	})
-	a.welcomeEntered = true
-}
-
 func (a *App) viewSubs(c *ui.Context, th *ui.Theme) {
 	ui.Modal(c, &a.adding, func() {
 		ui.Column(c).Width(640).Gap(14).Children(func() {

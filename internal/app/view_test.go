@@ -18,21 +18,71 @@ import (
 func TestWelcomeMentionsEmptyShellAndJar(t *testing.T) {
 	a := New()
 	tt := ui.NewTester(a.View, 960, 640)
-	if !tt.HasText("QuickBo") || !tt.HasText("不内置任何片源") {
-		t.Fatalf("texts %q", tt.Texts())
-	}
-	if !tt.HasText("不执行 jar") {
-		t.Fatalf("missing jar note: %q", tt.Texts())
-	}
 	joined := stringsJoin(tt.Texts())
-	if contains(joined, "一台不带片源") || contains(joined, "自备片源") {
-		t.Fatalf("welcome copy repeats the empty-shell claim: %q", tt.Texts())
+	for _, line := range []string{
+		welcomeWordmark, welcomeBrandTag, welcomeEyebrow, welcomeTitle,
+		welcomeLead, welcomeFact, welcomeNativeFact, welcomeAdd, welcomeFile,
+	} {
+		if !contains(joined, line) {
+			t.Fatalf("welcome is missing %q in %q", line, tt.Texts())
+		}
 	}
-	if err := tt.Click("添加订阅"); err != nil {
+	// Two facts the empty shell must own, whichever words the copy uses.
+	if !contains(welcomeLead, "不内置任何片源") || !contains(joined, "不内置任何片源") {
+		t.Fatalf("welcome no longer says it ships without sources: %q", tt.Texts())
+	}
+	if !contains(welcomeFact, "不执行 jar") || !contains(joined, "不执行 jar") {
+		t.Fatalf("welcome no longer says jar is not run: %q", tt.Texts())
+	}
+	for _, slop := range []string{"一台不带片源", "自备片源", "开启", "之旅", "一切就绪", "即刻体验"} {
+		if contains(joined, slop) {
+			t.Fatalf("welcome fell back to the stock line %q: %q", slop, tt.Texts())
+		}
+	}
+	if _, ok := tt.Access("QuickBo"); !ok {
+		t.Fatal("the welcome screen must expose the logo by name")
+	}
+	if err := tt.Click(welcomeAdd); err != nil {
 		t.Fatal(err)
 	}
 	if !tt.HasText("配置 URL") {
 		t.Fatalf("dialog texts %q", tt.Texts())
+	}
+}
+
+// Loading and a failed load keep the claim and both actions on screen; the
+// state slot is reserved, so neither may push the buttons away.
+func TestWelcomeStates(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		set  func(a *App)
+		want string
+	}{
+		{"loading", func(a *App) { a.loading = true }, welcomeLoading},
+		{"error", func(a *App) { a.loadErr = "读取配置失败" }, welcomeRetry},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a := New()
+			a.settingsPath = ""
+			tc.set(a)
+			tt := ui.NewTester(a.View, 960, 640)
+			if !tt.HasText(tc.want) {
+				t.Fatalf("%s state is missing %q in %q", tc.name, tc.want, tt.Texts())
+			}
+			for _, line := range []string{welcomeTitle, welcomeAdd, welcomeFile} {
+				if !tt.HasText(line) {
+					t.Fatalf("%s state lost %q in %q", tc.name, line, tt.Texts())
+				}
+			}
+			if tc.name == "error" {
+				if err := tt.Click(welcomeRetry); err != nil {
+					t.Fatal(err)
+				}
+				if !tt.HasText("配置 URL") {
+					t.Fatalf("retry did not open subscriptions: %q", tt.Texts())
+				}
+			}
+		})
 	}
 }
 
