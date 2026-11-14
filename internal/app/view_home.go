@@ -54,11 +54,40 @@ func (a *App) viewHome(c *ui.Context, th *ui.Theme) {
 				a.emptyState(c, th, title, body, actions...)
 				return
 			}
+			if searching {
+				a.searchWall(c, th, lanes)
+				return
+			}
 			for _, lane := range lanes {
 				a.homeRail(c, th, lane)
 			}
 		})
 	})
+}
+
+// searchWall lays a search's merged hits out as a poster wall. A home rail
+// is one 236px-tall row that scrolls sideways, which leaves most of the
+// window blank when it holds the results of every source at once.
+func (a *App) searchWall(c *ui.Context, th *ui.Theme, lanes []homeLane) {
+	_, cellW, cellH, tracks := a.posterGrid(c)
+	for _, lane := range lanes {
+		shown := make([]model.Item, 0, len(lane.Items))
+		for _, it := range lane.Items {
+			if pic := model.ResolveURL("", it.Pic); pic != "" && a.failed[pic] {
+				continue
+			}
+			shown = append(shown, it)
+		}
+		if len(shown) == 0 {
+			continue
+		}
+		ui.Text(c, fmt.Sprintf("共 %d 部", len(shown))).FontSize(fontCaption).TextColor(th.TextMuted)
+		ui.Grid(c).ColumnTracks(tracks...).Gap(16).Children(func() {
+			for _, item := range shown {
+				a.titleCard(c, th, lane.Key, item, cellW, cellH)
+			}
+		})
+	}
 }
 
 func (a *App) homeRail(c *ui.Context, th *ui.Theme, lane homeLane) {
@@ -119,7 +148,13 @@ func (a *App) homeRail(c *ui.Context, th *ui.Theme, lane homeLane) {
 }
 
 func (a *App) railCard(c *ui.Context, th *ui.Theme, siteKey string, item model.Item) {
-	const w, h float32 = 132, 198
+	a.titleCard(c, th, siteKey, item, 132, 198)
+}
+
+// titleCard is one aggregated title's poster. A rail uses the fixed 132x198
+// cover; the search wall sizes it to the window. Clicking an aggregated
+// title opens every source that carries it, a plain item its own detail.
+func (a *App) titleCard(c *ui.Context, th *ui.Theme, siteKey string, item model.Item, w, h float32) {
 	open := func() { a.openItem(siteKey, item) }
 	card := ui.Column(c.Key("rail:" + siteKey + ":" + item.ID)).Width(w).Gap(8).OnClick(open).Cursor(ui.CursorPointer)
 	hot := card.Hovered()

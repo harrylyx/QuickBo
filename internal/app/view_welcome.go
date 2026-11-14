@@ -57,10 +57,17 @@ var welcomeEnterAnims = [4]*ui.Animation{
 }
 
 func (a *App) viewWelcome(c *ui.Context, th *ui.Theme) {
+	// On the very first frame the four blocks below play their own stagger.
+	// Animating the container as well would give one view two entrances;
+	// returning here from the main shell does animate the container.
+	swap := shellSwap(c)
+	if !a.welcomeEntered {
+		swap.Enter = nil
+	}
 	// The ground is the root element itself: a separate absolute wash would
 	// paint over the flow and swallow clicks on the buttons. The shift is
 	// neutral, so dark and light both stay the app's own colors.
-	ui.Box(c).Fill().LinearGradient(ui.LinearGradient{
+	ui.Box(c.Key("welcome-screen")).Fill().Transition(swap).LinearGradient(ui.LinearGradient{
 		From:  th.Background,
 		To:    th.Background.MixOklab(th.Surface, 0.55),
 		Angle: 145,

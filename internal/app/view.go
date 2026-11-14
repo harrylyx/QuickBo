@@ -20,6 +20,36 @@ const (
 
 var cardMotion = ui.Animation{Duration: 200 * time.Millisecond, Ease: ui.EaseOut}
 
+// shellSwap is the one animated seam between the empty shell and the app.
+// Both live under the same keyed parent, so mygo keeps a copy of whichever
+// one just left and animates it out while the other enters.
+//
+// Purpose: continuity and orientation, not delight. The swap is rare (first
+// configuration load, or re-enabling subscriptions), which is why it earns
+// a directional move. Both directions share the steep-start Enter curve;
+// the exit is shorter and travels a small fixed offset so it releases
+// attention quietly. The exit takes a 2px blur, so the two pages never
+// read as doubled text during the overlap; the entering page stays sharp.
+var (
+	shellEase      = ui.CubicBezier(0.22, 1, 0.36, 1)
+	shellEnterPose = &ui.Motion{Y: 28, Opacity: 0, Scale: 1}
+	shellExitPose  = &ui.Motion{Y: -12, Opacity: 0, Blur: 2, Scale: 1}
+)
+
+func shellSwap(c *ui.Context) ui.ElementTransition {
+	if c.Preferences().ReduceMotion {
+		return ui.ElementTransition{Duration: -1}
+	}
+	return ui.ElementTransition{
+		Duration:     280 * time.Millisecond,
+		ExitDuration: 180 * time.Millisecond,
+		Ease:         shellEase,
+		ExitEase:     shellEase,
+		Enter:        shellEnterPose,
+		Exit:         shellExitPose,
+	}
+}
+
 func (a *App) animateCard(card, frame ui.Element, hot, light bool) {
 	pose := ui.Pose{}
 	if hot {
@@ -46,14 +76,29 @@ func (a *App) View(c *ui.Context) {
 	th := a.useTheme(c)
 	a.watchLivePlayback()
 	a.playerKeys(c)
-	if a.catalog == nil {
-		a.viewWelcome(c, th)
-	} else if a.screen == screenPlay || a.liveFullscreen() {
-		// A live channel in fullscreen takes the whole window, as a VOD does.
-		ui.Box(c).Fill().Background(ui.Hex("#000000")).Children(func() {
-			a.viewPlay(c, th)
-		})
-	} else {
+	ui.Box(c.Key("shell")).Fill().Background(th.Background).Children(func() {
+		if a.catalog == nil {
+			a.viewWelcome(c, th)
+		} else {
+			a.viewMain(c, th)
+		}
+	})
+	a.viewSubs(c, th)
+	a.viewSettings(c, th)
+}
+
+// viewMain is the app itself: the fullscreen player or the sidebar shell.
+// It shares one keyed parent with the welcome screen, so mygo can hold a
+// copy of whichever screen just left and animate it out (shellSwap).
+func (a *App) viewMain(c *ui.Context, th *ui.Theme) {
+	ui.Box(c.Key("main-screen")).Fill().Background(th.Background).Transition(shellSwap(c)).Children(func() {
+		if a.screen == screenPlay || a.liveFullscreen() {
+			// A live channel in fullscreen takes the whole window, as a VOD does.
+			ui.Box(c).Fill().Background(ui.Hex("#000000")).Children(func() {
+				a.viewPlay(c, th)
+			})
+			return
+		}
 		ui.Row(c).Fill().AlignItems(ui.Stretch).Children(func() {
 			a.viewSidebar(c, th)
 			main := ui.Box(c.Key("main")).Grow(1).FillHeight().Background(th.Background).Clip()
@@ -113,9 +158,7 @@ func (a *App) View(c *ui.Context) {
 				})
 			})
 		})
-	}
-	a.viewSubs(c, th)
-	a.viewSettings(c, th)
+	})
 }
 
 func (a *App) viewSubs(c *ui.Context, th *ui.Theme) {

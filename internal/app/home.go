@@ -332,6 +332,21 @@ func withoutLane(lanes []homeLane, key string) []homeLane {
 	return out
 }
 
+// searchHitLimit caps the poster wall: a search reads page one of every
+// source at once, so the merged list can be large. A home rail holds 18.
+const searchHitLimit = 120
+
+// searchLane merges a search's hits across sources. The wall shows far more
+// than a rail and keeps titles without a poster (they sort last), so every
+// hit stays reachable instead of being cut to one row's worth.
+func searchLane(ballots []ballot) (homeLane, map[string][]titleHit) {
+	lane, part := aggregateLane("search", "搜索结果", ballots)
+	if len(lane.Items) > searchHitLimit {
+		lane.Items = lane.Items[:searchHitLimit]
+	}
+	return lane, part
+}
+
 // searchHome asks every kept source for the committed query and groups
 // the hits by source. An empty query restores the aggregated rows.
 func (a *App) searchHome() {
@@ -374,7 +389,7 @@ func (a *App) searchHome() {
 			if a.gen != gen {
 				return
 			}
-			lane, part := votedLane("search", "搜索结果", found)
+			lane, part := searchLane(found)
 			if len(lane.Items) == 0 {
 				a.homeHits = nil
 				a.searchLookup = nil

@@ -86,6 +86,89 @@ func TestWelcomeStates(t *testing.T) {
 	}
 }
 
+// TestShellSwap walks both directions of the empty-shell → app transition
+// frame by frame. QUICKBO_SHOT_DIR writes the in-between frames out, so a
+// hard cut cannot quietly pass as an animation.
+func TestShellSwap(t *testing.T) {
+	a := New()
+	a.settingsPath = ""
+	tt := ui.NewTester(a.View, 960, 640)
+	if !tt.HasText(welcomeTitle) {
+		t.Fatalf("welcome did not render first: %q", tt.Texts())
+	}
+
+	dir := os.Getenv("QUICKBO_SHOT_DIR")
+	shot := func(name string) {
+		if dir != "" {
+			savePNG(t, filepath.Join(dir, name+".png"), tt.Image())
+		}
+	}
+
+	// The configuration arrives on the UI thread, as post does. A state
+	// change needs one Frame to rebuild the view before Advance can drive
+	// the animation clock.
+	a.catalog = &source.Catalog{Sites: []source.Source{cmsFake{}}}
+	a.screen, a.sideSel, a.lastSide = screenHome, "home", "home"
+	tt.Frame()
+	first := frameSamples(tt.Image())
+	var mid []uint8
+	for i, d := range []time.Duration{0, 60 * time.Millisecond, 60 * time.Millisecond, 120 * time.Millisecond, 120 * time.Millisecond} {
+		tt.Advance(d)
+		shot("swap-in-" + itoa(i))
+		if i == 1 {
+			mid = frameSamples(tt.Image())
+		}
+	}
+	settled := frameSamples(tt.Image())
+	if !tt.HasText("首页") {
+		t.Fatalf("the main shell never arrived: %q", tt.Texts())
+	}
+	// A hard cut would make the middle frame identical to either end.
+	if d1, d2 := sampleDelta(first, mid), sampleDelta(mid, settled); d1 < 10000 || d2 < 10000 {
+		t.Fatalf("shell swap hard-cut: in-between frame deltas %d / %d", d1, d2)
+	}
+
+	// Disabling every subscription walks the paired state back.
+	a.catalog = nil
+	tt.Frame()
+	for i, d := range []time.Duration{0, 60 * time.Millisecond, 120 * time.Millisecond, 120 * time.Millisecond} {
+		tt.Advance(d)
+		shot("swap-out-" + itoa(i))
+	}
+	if !tt.HasText(welcomeTitle) {
+		t.Fatalf("the welcome screen did not come back: %q", tt.Texts())
+	}
+}
+
+// frameSamples copies a coarse RGB sample: Image returns the tester's own
+// pixels, which the next frame reuses.
+func frameSamples(img *image.RGBA) []uint8 {
+	b := img.Bounds()
+	out := make([]uint8, 0, (b.Dx()/8+1)*(b.Dy()/8+1)*3)
+	for y := b.Min.Y; y < b.Max.Y; y += 8 {
+		for x := b.Min.X; x < b.Max.X; x += 8 {
+			c := img.RGBAAt(x, y)
+			out = append(out, c.R, c.G, c.B)
+		}
+	}
+	return out
+}
+
+func sampleDelta(a, b []uint8) int {
+	if len(a) != len(b) || len(a) == 0 {
+		return -1
+	}
+	total := 0
+	for i := range a {
+		d := int(a[i]) - int(b[i])
+		if d < 0 {
+			d = -d
+		}
+		total += d
+	}
+	return total
+}
+
 func TestUnsupportedJarRenders(t *testing.T) {
 	a := New()
 	a.catalog = &source.Catalog{Sites: []source.Source{deadFake{}}}
@@ -752,5 +835,69 @@ func TestLogoShows(t *testing.T) {
 		a.screen, a.sideSel, a.lastSide = screenHome, "home", "home"
 		tt.Frame()
 		savePNG(t, filepath.Join(dir, "home.png"), tt.Image())
+	}
+}
+
+// Search hits come from every source at once: they fill the page as a poster
+// wall, not one sideways-scrolling rail with the window empty below it.
+func TestSearchResultsFillThePage(t *testing.T) {
+	a := New()
+	a.settingsPath = ""
+	a.lib = &library{}
+	a.catalog = &source.Catalog{Sites: []source.Source{cmsFake{}}}
+	a.screen, a.sideSel, a.lastSide = screenHome, "home", "home"
+	a.query, a.committed = "搜索片", "搜索片"
+	lane := homeLane{Key: "search", Name: "搜索结果"}
+	const n = 24
+	for i := 0; i < n; i++ {
+		name := "搜索片" + string(rune('A'+i))
+		lane.Items = append(lane.Items, model.Item{ID: titlePrefix + name, Title: name})
+	}
+	a.homeHits = []homeLane{lane}
+	tt := ui.NewTester(a.View, 1200, 800)
+	if !tt.HasText("共 24 部") {
+		t.Fatalf("search wall is missing: %q", tt.Texts())
+	}
+	first, ok := tt.Find("搜索片A")
+	if !ok {
+		t.Fatalf("first result is not drawn: %q", tt.Texts())
+	}
+	second, ok := tt.Find("搜索片B")
+	if !ok || second.X <= first.X+50 {
+		t.Fatalf("results are not side by side: %+v %+v", first, second)
+	}
+	rows := map[float32]bool{}
+	for i := 0; i < n; i++ {
+		r, ok := tt.Find("搜索片" + string(rune('A'+i)))
+		if ok && r.Y < 800 {
+			rows[r.Y] = true
+		}
+	}
+	if len(rows) < 2 {
+		t.Fatalf("search results still occupy a single row: %v", rows)
+	}
+	if dir := os.Getenv("QUICKBO_SHOT_DIR"); dir != "" {
+		savePNG(t, filepath.Join(dir, "search.png"), tt.Image())
+	}
+}
+
+func TestSearchLaneKeepsMoreThanOneRail(t *testing.T) {
+	ballots := make([]ballot, 0, searchHitLimit+10)
+	for i := 0; i < searchHitLimit+10; i++ {
+		name := "搜索片" + string(rune('A'+i/26)) + string(rune('A'+i%26))
+		ballots = append(ballots, ballot{SiteKey: "s", SiteName: "测试源", Bucket: hotLaneID,
+			Item: model.Item{ID: name, Title: name}})
+	}
+	lane, lookup := searchLane(ballots)
+	if len(lane.Items) != searchHitLimit || len(lookup) < searchHitLimit {
+		t.Fatalf("wall keeps %d titles, rail limit is 18: %d items, %d lookups",
+			searchHitLimit, len(lane.Items), len(lookup))
+	}
+	if !strings.HasPrefix(lane.Items[0].ID, titlePrefix) {
+		t.Fatalf("search hits must open the aggregate: %q", lane.Items[0].ID)
+	}
+	lane, _ = searchLane(ballots[:24])
+	if len(lane.Items) != 24 {
+		t.Fatalf("a short search must show all hits, got %d", len(lane.Items))
 	}
 }
