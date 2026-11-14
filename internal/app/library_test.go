@@ -94,7 +94,8 @@ func TestBackReturnsWhereItCameFrom(t *testing.T) {
 	a.catalog = &source.Catalog{Sites: []source.Source{cmsFake{}}}
 	w := watchItem{Key: mediaKey("c", "1"), SiteKey: "c", VodID: "1", Title: "某片", Episode: "第2集"}
 
-	// History page → player (no address: it fails) → retry → back.
+	// History page → player (no address: it fails) → retry → back lands on
+	// the title, then the history page.
 	a.sideSel, a.lastSide, a.screen = "history", "history", screenHistory
 	a.playHistory(w)
 	if _, ep := a.overlayTitle(); ep != "第2集" {
@@ -103,8 +104,12 @@ func TestBackReturnsWhereItCameFrom(t *testing.T) {
 	a.retryPlay()
 	a.screen = screenPlay
 	a.back()
-	if a.screen != screenHistory {
+	if a.screen != screenDetail {
 		t.Fatalf("history → play → retry → back went to %q", a.screen)
+	}
+	a.back()
+	if a.screen != screenHistory {
+		t.Fatalf("detail → back went to %q", a.screen)
 	}
 
 	// Home's 继续观看 → player → back lands on the title, then home.
@@ -148,8 +153,8 @@ func TestBackReturnsWhereItCameFrom(t *testing.T) {
 	}
 }
 
-// Clicking through the window: continue watching comes back to the title's
-// detail, and a history card comes back to the history page.
+// Clicking a history card, from home or the history page, comes back to
+// that title's detail, and a second back returns to the list.
 func TestHistoryCardsBackInTheWindow(t *testing.T) {
 	for _, from := range []string{"home", "history"} {
 		a := New()
@@ -158,7 +163,7 @@ func TestHistoryCardsBackInTheWindow(t *testing.T) {
 		a.catalog = &source.Catalog{Sites: []source.Source{cmsFake{}}}
 		a.lib.upsertWatch(watchItem{Key: mediaKey("c", "1"), SiteKey: "c", VodID: "1", Title: "某片", URL: "http://x.invalid/a.m3u8"})
 		a.screen, a.sideSel, a.lastSide = screenHome, "home", "home"
-		want := screenDetail
+		want := screenHome
 		tt := ui.NewTester(a.View, 1200, 800)
 		if from == "history" {
 			if err := tt.Click("历史"); err != nil {
@@ -178,8 +183,15 @@ func TestHistoryCardsBackInTheWindow(t *testing.T) {
 			t.Fatal(err)
 		}
 		tt.Frame()
-		if a.screen != want {
+		if a.screen != screenDetail {
 			t.Fatalf("%s: back went to %q", from, a.screen)
+		}
+		if err := tt.Click("返回"); err != nil {
+			t.Fatal(err)
+		}
+		tt.Frame()
+		if a.screen != want {
+			t.Fatalf("%s: detail back went to %q", from, a.screen)
 		}
 	}
 }

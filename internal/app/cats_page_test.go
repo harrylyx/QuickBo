@@ -21,13 +21,17 @@ func TestCollectKeepsEveryCategoryName(t *testing.T) {
 	if len(listed) != 1 {
 		t.Fatalf("only the capped lists are fetched, got %d", len(listed))
 	}
-	if len(names) != 20 {
-		t.Fatalf("every non-junk name should be kept, got %d", len(names))
+	if len(names) != 21 {
+		t.Fatalf("every usable name should be kept, got %d", len(names))
 	}
+	found := false
 	for _, n := range names {
 		if n.Name == "伦理片" {
-			t.Fatal("junk category was recorded")
+			found = true
 		}
+	}
+	if !found {
+		t.Fatal("伦理片 was dropped from the category names")
 	}
 }
 
@@ -40,15 +44,19 @@ func TestCategoryDirectoryMergesRulesAndSharedNames(t *testing.T) {
 		{SiteKey: "b", Name: "综艺", ID: "9"},
 		{SiteKey: "a", Name: "冷门", ID: "3"},
 		{SiteKey: "c", Name: "伦理片", ID: "4"},
+		{SiteKey: "a", Name: "短剧", ID: "5"},
+		{SiteKey: "b", Name: "短剧", ID: "5"},
 	}
 	dir := a.categoryDirectory()
-	var movie, variety aggEntry
+	var movie, variety, shorts aggEntry
 	for _, e := range dir {
 		switch e.Name {
 		case "电影":
 			movie = e
 		case "综艺":
 			variety = e
+		case "短剧":
+			shorts = e
 		case "冷门", "伦理片":
 			t.Fatalf("directory included %q", e.Name)
 		}
@@ -58,6 +66,9 @@ func TestCategoryDirectoryMergesRulesAndSharedNames(t *testing.T) {
 	}
 	if variety.Key != "agg:综艺" || variety.Sources != 2 {
 		t.Fatalf("variety %+v", variety)
+	}
+	if shorts.Key != "agg:短剧" || shorts.Sources != 2 {
+		t.Fatalf("shorts %+v", shorts)
 	}
 	movieAt, varietyAt := -1, -1
 	for i, e := range dir {
@@ -117,5 +128,22 @@ func TestOpenSharedNameUsesATemporaryRule(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("the temporary rule was not passed to the aggregate lookup")
+	}
+}
+
+func TestSharedJunkNameStillMatches(t *testing.T) {
+	rule := homeRule{ID: "agg:短剧", Name: "短剧", Keywords: []string{"短剧"}}
+	ids := matchRules("短剧", append(defaultHomeRules(), rule))
+	hit := false
+	for _, id := range ids {
+		if id == rule.ID {
+			hit = true
+		}
+		if id == "movie" || id == "tv" {
+			t.Fatalf("短剧 matched a built-in row %q", id)
+		}
+	}
+	if !hit {
+		t.Fatalf("ids %v", ids)
 	}
 }

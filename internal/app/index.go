@@ -593,6 +593,8 @@ func wantedJunk(name string, rules []homeRule) bool {
 
 // collectSourceWith is collectSource that also keeps the junk-genre categories
 // the given rules ask for by name. They do not count against cacheCatLimit.
+// The returned names include every usable category, junk genres included,
+// so the category page can list them without another scan.
 func collectSourceWith(ctx context.Context, s source.Source, rules []homeRule) ([]cacheCat, []model.Category) {
 	cats, err := s.Categories(ctx)
 	if err != nil || len(cats) == 0 {
@@ -606,13 +608,13 @@ func collectSourceWith(ctx context.Context, s source.Source, rules []homeRule) (
 		if !usableTitle(name) {
 			continue
 		}
+		names = append(names, model.Category{ID: cat.ID, Name: name})
 		if junkCategory(name) {
 			if wantedJunk(name, rules) {
 				extra = append(extra, cat)
 			}
 			continue
 		}
-		names = append(names, model.Category{ID: cat.ID, Name: name})
 		if len(picks) < cacheCatLimit {
 			picks = append(picks, cat)
 		}

@@ -267,21 +267,18 @@ func (a *App) watchKey() string {
 // playHistory resumes a history entry. The detail of whatever was opened
 // last must not stay behind: the player title, the history record and the
 // progress all key off a.detail, so a stale one sent every entry to the
-// title watched before. Continue watching on the home page comes back to
-// that title's detail, once the episode list has been filled in.
+// title watched before. Back from the player lands on this title's detail,
+// and a second back returns to the list it was opened from.
 func (a *App) playHistory(w watchItem) {
-	toDetail := a.screen == screenHome
 	a.prepareHistory(w)
-	if toDetail {
-		a.noteDetailFrom()
-		a.screen = screenDetail
-	}
+	a.noteDetailFrom()
+	a.screen = screenDetail
 	a.startPlay(w.Title, w.URL, nil, false)
 	a.fetchHistoryDetail(w)
 }
 
 // fetchHistoryDetail loads the title's lines so the player can change
-// episode, and so back from continue watching has a detail page to show.
+// episode, and so back has a detail page to show.
 func (a *App) fetchHistoryDetail(w watchItem) {
 	src := a.current()
 	if src == nil || strings.TrimSpace(w.VodID) == "" {

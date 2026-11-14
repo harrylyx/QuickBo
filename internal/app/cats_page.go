@@ -37,7 +37,7 @@ func (a *App) replaceCatFacts(siteKey, siteName string, cats []model.Category) {
 	seen := map[string]bool{}
 	for _, cat := range cats {
 		name := strings.TrimSpace(cat.Name)
-		if name == "" || seen[name] || junkCategory(name) || !usableTitle(name) {
+		if name == "" || seen[name] || !usableTitle(name) {
 			continue
 		}
 		seen[name] = true
@@ -54,7 +54,7 @@ func (a *App) categoryDirectory() []aggEntry {
 	var facts []catFact
 	for _, f := range a.catFacts {
 		name := strings.TrimSpace(f.Name)
-		if name == "" || junkCategory(name) || !usableTitle(name) {
+		if name == "" || !usableTitle(name) {
 			continue
 		}
 		p := pair{f.SiteKey, name}
