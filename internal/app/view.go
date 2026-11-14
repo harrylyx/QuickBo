@@ -72,6 +72,8 @@ func (a *App) View(c *ui.Context) {
 						}
 						ui.Column(c).Grow(1).Padding(20, pagePad, 16, pagePad).Gap(16).Children(func() {
 							switch a.screen {
+							case screenCats:
+								a.viewCats(c, th)
 							case screenHistory:
 								a.viewHistory(c, th)
 							case screenFav:
@@ -435,6 +437,7 @@ func (a *App) viewSidebar(c *ui.Context, th *ui.Theme) {
 		side := ui.Sidebar(c, &a.sideSel, func() {
 			ui.SidebarSection(c, "导航", nil, func() {
 				ui.SidebarItem(c, "home", iconHome, "首页")
+				ui.SidebarItem(c, "cats", iconList, "分类")
 			})
 			ui.SidebarSection(c, "资料库", nil, func() {
 				ui.SidebarItem(c, "history", iconClock, "历史")
@@ -613,6 +616,8 @@ func (a *App) crumb() string {
 	switch a.screen {
 	case screenHome:
 		return "首页"
+	case screenCats:
+		return "首页"
 	case screenHistory:
 		return "资料库"
 	case screenFav:
@@ -646,6 +651,8 @@ func (a *App) headline() string {
 			return "搜索「" + q + "」"
 		}
 		return "全部片源"
+	case screenCats:
+		return "分类"
 	case screenHistory:
 		return "观看历史"
 	case screenFav:

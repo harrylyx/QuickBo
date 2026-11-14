@@ -37,6 +37,14 @@ type cacheSite struct {
 	Voter string       `json:"voter,omitempty"`
 	Hot   []model.Item `json:"hot,omitempty"`
 	Cats  []cacheCat   `json:"cats"`
+	// Names is every usable category of the source, not only the ones whose
+	// first page was stored in Cats.
+	Names []cacheName `json:"names,omitempty"`
+}
+
+type cacheName struct {
+	ID   string `json:"id,omitempty"`
+	Name string `json:"name"`
 }
 
 type cacheCat struct {
@@ -97,6 +105,44 @@ func (a *App) writeCache(c *cacheData) {
 		return
 	}
 	_ = os.Rename(tmp, path)
+}
+
+func cacheNames(cats []model.Category) []cacheName {
+	if len(cats) == 0 {
+		return nil
+	}
+	out := make([]cacheName, 0, len(cats))
+	for _, cat := range cats {
+		name := strings.TrimSpace(cat.Name)
+		if name == "" {
+			continue
+		}
+		out = append(out, cacheName{ID: cat.ID, Name: name})
+	}
+	return out
+}
+
+func factsFromCache(c *cacheData, allowed map[string]bool) []catFact {
+	var out []catFact
+	for _, s := range c.Sites {
+		if allowed != nil && !allowed[s.Key] {
+			continue
+		}
+		names := s.Names
+		if len(names) == 0 {
+			for _, cat := range s.Cats {
+				names = append(names, cacheName{Name: cat.Name})
+			}
+		}
+		for _, n := range names {
+			name := strings.TrimSpace(n.Name)
+			if name == "" {
+				continue
+			}
+			out = append(out, catFact{SiteKey: s.Key, SiteName: s.Name, Name: name, ID: n.ID})
+		}
+	}
+	return out
 }
 
 func (a *App) clearCache() {
@@ -178,6 +224,7 @@ func (a *App) restoreFromCache(c *cacheData, full *source.Catalog) {
 		visible[s.Meta().Key] = true
 	}
 	a.ballots = c.ballots(visible)
+	a.catFacts = factsFromCache(c, visible)
 	a.rebuildHome()
 	a.loading = false
 	a.loadNote = ""

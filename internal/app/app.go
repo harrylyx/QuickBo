@@ -50,6 +50,7 @@ const (
 	screenSubs        = "subs"
 	screenBlacklist   = "blacklist"
 	screenMore        = "more"
+	screenCats        = "cats"
 )
 
 // App is the window state. Methods that change it run on the UI thread,
@@ -254,6 +255,9 @@ type App struct {
 	homeHits      []homeLane
 	homeSearching bool
 	ballots       []ballot
+	catFacts      []catFact
+	aggExtra      *homeRule
+	moreFrom      string
 	lookup        map[string][]titleHit
 	searchLookup  map[string][]titleHit
 	offers        []playOffer
@@ -502,6 +506,11 @@ func (a *App) onSide() {
 	}
 	a.lastSide = a.sideSel
 	switch {
+	case a.sideSel == "cats":
+		a.query = ""
+		a.committed = ""
+		a.screen = screenCats
+		a.closePlayer()
 	case a.sideSel == "home":
 		a.query = ""
 		a.committed = ""

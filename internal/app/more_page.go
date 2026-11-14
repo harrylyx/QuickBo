@@ -44,12 +44,25 @@ type morePage struct {
 }
 
 func (a *App) ruleByID(id string) (homeRule, bool) {
+	if a.aggExtra != nil && a.aggExtra.ID == id {
+		return *a.aggExtra, true
+	}
 	for _, r := range a.activeRules() {
 		if r.ID == id {
 			return r, true
 		}
 	}
 	return homeRule{}, false
+}
+
+// rulesForMore is the homepage rules plus the temporary keyword rule when
+// the open row is a name no saved rule covers.
+func (a *App) rulesForMore(rule homeRule) []homeRule {
+	rules := cloneRules(a.activeRules())
+	if a.aggExtra != nil && a.aggExtra.ID == rule.ID {
+		rules = append(rules, rule)
+	}
+	return rules
 }
 
 // canMore reports whether a home row has an aggregate page behind it.
@@ -70,9 +83,16 @@ func (a *App) openMore(lane homeLane) {
 	if !ok || a.catalog == nil {
 		return
 	}
+	from := ""
+	if a.screen == screenCats {
+		from = screenCats
+	}
 	a.closePlayer()
 	a.screen = screenMore
-	a.sideSel, a.lastSide = "home", "home"
+	a.moreFrom = from
+	if from == "" {
+		a.sideSel, a.lastSide = "home", "home"
+	}
 	a.moreRow = homeLane{Key: lane.Key, Name: lane.Name}
 	a.moreLookup = nil
 	a.moreKeys = nil
@@ -82,7 +102,7 @@ func (a *App) openMore(lane homeLane) {
 	a.moreAppending = false
 	a.browseScroll.Y = 0
 	sites := append([]source.Source(nil), a.catalog.Sites...)
-	rules := cloneRules(a.activeRules())
+	rules := a.rulesForMore(rule)
 	a.moreSeq++
 	seq := a.moreSeq
 	go func() {
@@ -329,8 +349,16 @@ func (a *App) viewMore(c *ui.Context, th *ui.Theme) {
 	ui.Scroll(c).Grow(1).TrackScroll(&a.browseScroll).Children(func() {
 		ui.Column(c).Padding(8, 0, 28, 0).Gap(18).Children(func() {
 			ui.Row(c).Gap(12).AlignItems(ui.Center).Children(func() {
-				if ui.Button(c, "返回首页").Clicked() {
-					a.goHome()
+				backLabel := "返回首页"
+				if a.moreFrom == screenCats {
+					backLabel = "返回分类"
+				}
+				if ui.Button(c, backLabel).Clicked() {
+					if a.moreFrom == screenCats {
+						a.screen = screenCats
+					} else {
+						a.goHome()
+					}
 					return
 				}
 				ui.Text(c, a.moreRow.Name).FontSize(fontHero).Bold().SingleLine()
@@ -343,8 +371,11 @@ func (a *App) viewMore(c *ui.Context, th *ui.Theme) {
 				return
 			}
 			if len(a.moreRow.Items) == 0 {
-				a.emptyState(c, th, "没有内容", "各片源里没有找到这个分类的影片。",
-					stateAction{label: "返回首页", primary: true, click: a.goHome})
+				back := stateAction{label: "返回首页", primary: true, click: a.goHome}
+				if a.moreFrom == screenCats {
+					back = stateAction{label: "返回分类", primary: true, click: func() { a.screen = screenCats }}
+				}
+				a.emptyState(c, th, "没有内容", "各片源里没有找到这个分类的影片。", back)
 				return
 			}
 			ui.Grid(c).ColumnTracks(tracks...).Gap(20).Children(func() {

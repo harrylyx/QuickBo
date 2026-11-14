@@ -195,6 +195,9 @@ func (a *App) keepWorkingMode(ctx context.Context, full *source.Catalog, silent 
 	}
 	ref := a.cfgRef
 	rules := cloneRules(a.activeRules())
+	if !silent {
+		a.catFacts = nil
+	}
 	// A silent refresh starts from the sources the cache restored, so the
 	// first probe result does not shrink the sidebar to a single source.
 	seedSite := make([]bool, len(sites))
@@ -299,19 +302,30 @@ func (a *App) keepWorkingMode(ctx context.Context, full *source.Catalog, silent 
 					voter := voterFor(m)
 					hot := hotCandidates(page.Items)
 					var cats []cacheCat
+					var names []model.Category
 					if a.probeSite == nil {
 						bctx, bcancel := context.WithTimeout(ctx, 20*time.Second)
-						cats = collectSourceWith(bctx, s, rules)
+						cats, names = collectSourceWith(bctx, s, rules)
 						bcancel()
 						if len(hot) == 0 && len(cats) > 0 {
 							hot = hotCandidates(cats[0].Items)
 						}
 					}
-					if len(hot) > 0 || len(cats) > 0 {
+					if len(names) > 0 {
+						names := append([]model.Category(nil), names...)
+						key, siteName := m.Key, m.Name
+						a.post(func() {
+							if ctx.Err() != nil {
+								return
+							}
+							a.replaceCatFacts(key, siteName, names)
+						})
+					}
+					if len(hot) > 0 || len(cats) > 0 || len(names) > 0 {
 						cacheMu.Lock()
 						cacheSites = append(cacheSites, cacheSite{
 							Key: m.Key, Name: m.Name, Voter: voter,
-							Hot: hot, Cats: cats,
+							Hot: hot, Cats: cats, Names: cacheNames(names),
 						})
 						cacheMu.Unlock()
 					}
@@ -562,7 +576,8 @@ func sourceSample(ctx context.Context, s source.Source) (model.Page, bool) {
 // the current homepage rules happen to match. New rule keywords can then be
 // applied to the cached facts without another network pass.
 func collectSource(ctx context.Context, s source.Source) []cacheCat {
-	return collectSourceWith(ctx, s, nil)
+	cats, _ := collectSourceWith(ctx, s, nil)
+	return cats
 }
 
 // wantedJunk reports whether a junk-genre category is named by a keyword the
@@ -578,11 +593,12 @@ func wantedJunk(name string, rules []homeRule) bool {
 
 // collectSourceWith is collectSource that also keeps the junk-genre categories
 // the given rules ask for by name. They do not count against cacheCatLimit.
-func collectSourceWith(ctx context.Context, s source.Source, rules []homeRule) []cacheCat {
+func collectSourceWith(ctx context.Context, s source.Source, rules []homeRule) ([]cacheCat, []model.Category) {
 	cats, err := s.Categories(ctx)
 	if err != nil || len(cats) == 0 {
-		return nil
+		return nil, nil
 	}
+	var names []model.Category
 	picks := make([]model.Category, 0, cacheCatLimit)
 	var extra []model.Category
 	for _, cat := range cats {
@@ -596,6 +612,7 @@ func collectSourceWith(ctx context.Context, s source.Source, rules []homeRule) [
 			}
 			continue
 		}
+		names = append(names, model.Category{ID: cat.ID, Name: name})
 		if len(picks) < cacheCatLimit {
 			picks = append(picks, cat)
 		}
@@ -632,7 +649,7 @@ func collectSourceWith(ctx context.Context, s source.Source, rules []homeRule) [
 			kept = append(kept, cat)
 		}
 	}
-	return kept
+	return kept, names
 }
 
 // recollect is the manual refresh: discard the cache and run one fresh

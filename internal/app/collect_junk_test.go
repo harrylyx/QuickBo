@@ -28,11 +28,11 @@ func TestCollectSourceKeepsJunkCategoryNamedByRule(t *testing.T) {
 		{ID: "custom-1", Name: "伦理", Keywords: []string{"伦理"}},
 		{ID: "custom-2", Name: "短剧", Keywords: []string{"短剧"}},
 	}
-	cats := collectSourceWith(context.Background(), newSrc(), rules)
+	cats, _ := collectSourceWith(context.Background(), newSrc(), rules)
 	if len(cats) != 3 {
 		t.Fatalf("cats %+v", cats)
 	}
-	if got := collectSourceWith(context.Background(), newSrc(), defaultHomeRules()); len(got) != 1 {
+	if got, _ := collectSourceWith(context.Background(), newSrc(), defaultHomeRules()); len(got) != 1 {
 		t.Fatalf("default rules must still skip junk: %+v", got)
 	}
 }
