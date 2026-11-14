@@ -23,7 +23,7 @@ const spaceBoostDelay = 400 * time.Millisecond
 const bufferingShowDelay = 350 * time.Millisecond
 
 func (a *App) playerKeys(c *ui.Context) {
-	if a.screen != screenPlay && a.screen != screenLive {
+	if a.screen != screenPlay && a.screen != screenLive && !(a.screen == screenLiveAgg && a.fromLive) {
 		// Leaving the player ends the app window's fullscreen, and the
 		// floating window.
 		if a.fullscreen {
@@ -468,6 +468,10 @@ func (a *App) paintStage(c *ui.Context, th *ui.Theme, embed bool) {
 }
 
 func (a *App) thinProgress(c *ui.Context, th *ui.Theme) {
+	// A live stream has no length, so the hairline must not creep along.
+	if a.fromLive {
+		return
+	}
 	var pos, dur float64
 	if a.player != nil {
 		pos = a.player.Position().Seconds()
@@ -626,6 +630,10 @@ func (a *App) overlayTitle() (string, string) {
 }
 
 func (a *App) seekBar(c *ui.Context, th *ui.Theme) {
+	if a.fromLive {
+		a.liveMark(c, th)
+		return
+	}
 	var pos, dur, buffered float64
 	buffering := false
 	if a.player != nil {
@@ -723,6 +731,19 @@ func (a *App) seekBar(c *ui.Context, th *ui.Theme) {
 			}
 			ui.Text(c, label).FontSize(fontCaption).TextColor(th.AccentText)
 		}
+	})
+}
+
+// liveMark stands in for the seek bar. The playhead of a live stream only
+// counts how long this player has been open, so the bar stays still and
+// shows that it is live.
+func (a *App) liveMark(c *ui.Context, th *ui.Theme) {
+	label := "直播"
+	if a.player != nil && (a.player.Buffering() || !a.player.Ready()) {
+		label = "缓冲中"
+	}
+	ui.Row(c).Height(28).AlignItems(ui.Center).Children(func() {
+		ui.Text(c, label).FontSize(fontCaption).TextColor(th.AccentText)
 	})
 }
 

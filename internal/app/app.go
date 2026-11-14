@@ -51,6 +51,7 @@ const (
 	screenBlacklist   = "blacklist"
 	screenMore        = "more"
 	screenCats        = "cats"
+	screenLiveAgg     = "liveagg"
 )
 
 // App is the window state. Methods that change it run on the UI thread,
@@ -123,6 +124,9 @@ type App struct {
 	liveLoading bool
 	liveHealth  map[string]liveHealthState
 	liveTries   int
+	// livePlayGen drops a stream probe once another channel has been
+	// opened, or the aggregate page has left that channel.
+	livePlayGen int
 
 	parseMu   sync.Mutex
 	parseRank map[string]parseRankEntry
@@ -259,11 +263,21 @@ type App struct {
 	catFacts      []catFact
 	aggExtra      *homeRule
 	moreFrom      string
-	lookup        map[string][]titleHit
-	searchLookup  map[string][]titleHit
-	offers        []playOffer
-	offerPick     int
-	stats         map[string]sourceStat
+	// The aggregated live directory (live_agg.go): one entry per channel
+	// name, the name currently open, and the lines failover may walk.
+	liveAggs       []liveAgg
+	liveAggName    string
+	liveAggLines   []live.Channel
+	liveAggLoading bool
+	liveAggMiss    int
+	liveAggToken   int
+	aggList        ui.ListState
+	aggLineList    ui.ListState
+	lookup         map[string][]titleHit
+	searchLookup   map[string][]titleHit
+	offers         []playOffer
+	offerPick      int
+	stats          map[string]sourceStat
 
 	gen int
 	// offerGen identifies the current title's source probe (loadOffers). It
@@ -512,6 +526,8 @@ func (a *App) onSide() {
 		a.committed = ""
 		a.screen = screenCats
 		a.closePlayer()
+	case a.sideSel == "liveagg":
+		a.openLiveAgg()
 	case a.sideSel == "home":
 		a.query = ""
 		a.committed = ""
@@ -862,6 +878,7 @@ func (a *App) selectLive(i int) {
 	if a.catalog == nil || i < 0 || i >= len(a.catalog.Lives) {
 		return
 	}
+	a.livePlayGen++
 	a.liveIndex = i
 	a.sideSel = "live:" + strconv.Itoa(i)
 	a.lastSide = a.sideSel

@@ -39,7 +39,7 @@ func (a *App) View(c *ui.Context) {
 	a.playerKeys(c)
 	if a.catalog == nil {
 		a.viewWelcome(c, th)
-	} else if a.screen == screenPlay || a.screen == screenLive && a.fullscreen && a.fromLive && a.embedded() {
+	} else if a.screen == screenPlay || a.liveFullscreen() {
 		// A live channel in fullscreen takes the whole window, as a VOD does.
 		ui.Box(c).Fill().Background(ui.Hex("#000000")).Children(func() {
 			a.viewPlay(c, th)
@@ -74,6 +74,8 @@ func (a *App) View(c *ui.Context) {
 							switch a.screen {
 							case screenCats:
 								a.viewCats(c, th)
+							case screenLiveAgg:
+								a.viewLiveAgg(c, th)
 							case screenHistory:
 								a.viewHistory(c, th)
 							case screenFav:
@@ -440,6 +442,9 @@ func (a *App) viewSidebar(c *ui.Context, th *ui.Theme) {
 			ui.SidebarSection(c, "导航", nil, func() {
 				ui.SidebarItem(c, "home", iconHome, "首页")
 				ui.SidebarItem(c, "cats", iconList, "分类")
+				if a.catalog != nil && len(a.catalog.Lives) > 0 {
+					ui.SidebarItem(c, "liveagg", iconSignal, "直播")
+				}
 			})
 			ui.SidebarSection(c, "资料库", nil, func() {
 				ui.SidebarItem(c, "history", iconClock, "历史")
@@ -538,12 +543,12 @@ func (a *App) viewTop(c *ui.Context, th *ui.Theme) {
 			})
 		}
 		ui.Column(c).Grow(1)
-		if a.screen == screenBrowse || a.screen == screenHome || a.screen == screenLive {
+		if a.screen == screenBrowse || a.screen == screenHome || a.screen == screenLive || a.screen == screenLiveAgg && a.liveAggName == "" {
 			ph := "搜索片名"
 			if a.screen == screenHome {
 				ph = "搜索全部片源"
 			}
-			if a.screen == screenLive {
+			if a.screen == screenLive || a.screen == screenLiveAgg {
 				ph = "过滤频道"
 			}
 			field := ui.SearchField(c, &a.query).Placeholder(ph).Width(260).Label("搜索")
@@ -620,6 +625,8 @@ func (a *App) crumb() string {
 		return "首页"
 	case screenCats:
 		return "首页"
+	case screenLiveAgg:
+		return "直播"
 	case screenHistory:
 		return "资料库"
 	case screenFav:
@@ -655,6 +662,11 @@ func (a *App) headline() string {
 		return "全部片源"
 	case screenCats:
 		return "分类"
+	case screenLiveAgg:
+		if a.liveAggName != "" {
+			return a.liveAggName
+		}
+		return "直播"
 	case screenHistory:
 		return "观看历史"
 	case screenFav:

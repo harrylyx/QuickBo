@@ -132,13 +132,13 @@ func TestSideGroupsSplitSitesAndLives(t *testing.T) {
 		Lives: []*source.LiveEntry{{Name: "央视", URL: "http://live"}},
 	}
 	groups := a.sideGroups()
-	if len(groups) != 2 || groups[0].name != "片源" || groups[1].name != "直播" {
+	if len(groups) != 2 || groups[0].name != "片源" || groups[1].name != "直播源" {
 		t.Fatalf("%+v", groups)
 	}
 	if len(groups[0].sites) != 1 || len(groups[1].lives) != 1 || groups[1].lives[0].entry.Name != "央视" {
 		t.Fatalf("%+v", groups)
 	}
-	if sideGroupTitle(groups[0]) != "片源  1" || sideGroupTitle(groups[1]) != "直播  1" {
+	if sideGroupTitle(groups[0]) != "片源  1" || sideGroupTitle(groups[1]) != "直播源  1" {
 		t.Fatalf("%q %q", sideGroupTitle(groups[0]), sideGroupTitle(groups[1]))
 	}
 }

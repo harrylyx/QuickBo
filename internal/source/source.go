@@ -47,6 +47,15 @@ type LiveEntry struct {
 	done bool
 }
 
+// Prime caches a parsed playlist so Load does not fetch again. Tests use it
+// to stand in for a downloaded list.
+func (e *LiveEntry) Prime(chs []live.Channel) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.got = append([]live.Channel(nil), chs...)
+	e.done = true
+}
+
 // Load fetches and parses the playlist once.
 func (e *LiveEntry) Load(ctx context.Context) ([]live.Channel, error) {
 	e.mu.Lock()

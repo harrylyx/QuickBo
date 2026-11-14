@@ -310,3 +310,37 @@ func TestPipWindowControls(t *testing.T) {
 		t.Fatal("restore must leave the floating window")
 	}
 }
+
+// A live stream's playhead only counts how long the player has been open.
+// The bar stays a still "直播" mark, while a recording keeps its times.
+func TestLivePlaybackSkipsTheTimeline(t *testing.T) {
+	a := New()
+	a.settingsPath = ""
+	a.fromLive = true
+	p := &fakePlay{pos: 12 * time.Minute, dur: 40 * time.Minute}
+	a.player = p
+	live := ui.NewTester(func(c *ui.Context) {
+		th := a.useTheme(c)
+		a.seekBar(c, th)
+		a.thinProgress(c, th)
+		a.pipProgress(c, th)
+	}, 800, 240)
+	if live.HasText("12:00") || live.HasText("40:00") {
+		t.Fatalf("live timeline is moving: %q", live.Texts())
+	}
+	if !live.HasText("直播") {
+		t.Fatalf("texts %q", live.Texts())
+	}
+	if len(p.seeks) != 0 {
+		t.Fatal("the live mark sought")
+	}
+
+	a.fromLive = false
+	vod := ui.NewTester(func(c *ui.Context) {
+		th := a.useTheme(c)
+		a.seekBar(c, th)
+	}, 800, 120)
+	if !vod.HasText("12:00") || !vod.HasText("40:00") {
+		t.Fatalf("vod timeline missing: %q", vod.Texts())
+	}
+}

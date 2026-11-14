@@ -601,6 +601,10 @@ func (a *App) pipPlayButton(c *ui.Context, th *ui.Theme, glyph *ui.SVG, tip stri
 
 // pipProgress is a slim seek bar with the times at its ends.
 func (a *App) pipProgress(c *ui.Context, th *ui.Theme) {
+	if a.fromLive {
+		ui.Text(c, "直播").FontSize(11).TextColor(th.AccentText.Alpha(0.85))
+		return
+	}
 	pos, dur := a.player.Position().Seconds(), a.player.Duration().Seconds()
 	if dur <= 0 {
 		return

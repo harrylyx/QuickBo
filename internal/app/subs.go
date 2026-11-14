@@ -496,7 +496,7 @@ type sideGroup struct {
 // sideGroups splits the sidebar into on-demand sources and live lists.
 func (a *App) sideGroups() []sideGroup {
 	vod := sideGroup{name: "片源"}
-	live := sideGroup{name: "直播"}
+	live := sideGroup{name: "直播源"}
 	if a.catalog != nil {
 		vod.sites = append(vod.sites, a.catalog.Sites...)
 		for i, lv := range a.catalog.Lives {

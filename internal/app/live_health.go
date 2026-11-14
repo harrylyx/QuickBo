@@ -28,10 +28,16 @@ type liveHealthState struct {
 // channel is swapped for the next one in the group (see switchChannel) instead
 // of opening an mpv window that just shows an error.
 func (a *App) startChannel(ch live.Channel) {
+	stay := screenLive
+	if a.screen == screenLiveAgg {
+		stay = screenLiveAgg
+	}
+	a.livePlayGen++
+	gen := a.livePlayGen
 	a.playLine = ch.Group
 	a.playTitle = ch.Name
 	a.fromLive = true
-	a.screen = screenLive
+	a.screen = stay
 	a.playLoading = true
 	a.playErr = ""
 	a.closePlayer()
@@ -46,7 +52,7 @@ func (a *App) startChannel(ch live.Channel) {
 		if st.ok && time.Since(st.at) < liveOKTTL {
 			a.playLoading = false
 			a.startPlay(name, raw, headers, true)
-			a.screen = screenLive
+			a.screen = stay
 			a.fromLive = true
 			return
 		}
@@ -71,6 +77,9 @@ func (a *App) startChannel(ch live.Channel) {
 		pcancel()
 		ok := err == nil
 		a.post(func() {
+			if a.livePlayGen != gen {
+				return
+			}
 			a.playLoading = false
 			a.liveHealth[id] = liveHealthState{ok: ok, at: time.Now()}
 			if !ok {
@@ -78,7 +87,7 @@ func (a *App) startChannel(ch live.Channel) {
 				return
 			}
 			a.startPlay(name, raw, headers, true)
-			a.screen = screenLive
+			a.screen = stay
 			a.fromLive = true
 		})
 	}()
@@ -89,6 +98,20 @@ func (a *App) startChannel(ch live.Channel) {
 func (a *App) switchChannel(ch live.Channel) {
 	a.liveTries++
 	chs := a.channels
+	if a.screen == screenLiveAgg {
+		chs = a.liveAggLines
+		if a.liveTries > len(chs) {
+			a.playErr = "没有可用的直播线路"
+			return
+		}
+		next, ok := nextAggChannel(chs, ch)
+		if !ok {
+			a.playErr = "没有可用的直播线路"
+			return
+		}
+		a.startChannel(next)
+		return
+	}
 	if a.liveTries > len(chs) {
 		a.playErr = "没有可用的直播线路"
 		return
