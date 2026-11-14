@@ -185,12 +185,15 @@ type App struct {
 	subBatch       bool                  // 订阅批量管理模式
 	subConfirm     []string              // refs waiting on a batch-delete confirmation
 	srcFilter      string                // 片源管理搜索关键字
-	srcShown       int                   // 片源管理当前渲染的行数（大订阅分页）
 	srcSort        string                // 片源排序键：srcSort* 常量
 	srcHealth      string                // 片源健康度筛选：srcShow* 常量
 	srcView        string                // 片源分组视图：srcGroup* 常量
 	srcSel         map[string]bool       // 批量选中的片源 key
 	srcBatch       bool                  // 片源批量管理模式
+	srcList        ui.ListState          // 片源管理的虚拟列表滚动状态
+	srcCache       *srcRows              // 片源管理排序/筛选/分组缓存（按输入指纹失效）
+	srcActive      map[string]bool       // activeSiteKeys 缓存
+	srcActiveKey   srcActiveKey          // activeSiteKeys 缓存的键
 	disabled       map[string]bool       // 停用的片源（sourceHideID），保留在管理列表但不下发
 	allSites       []source.Source       // 订阅里的全部片源（含停用/不支持/未通过检测）
 	persistedStats map[string]sourceStat // 从设置恢复的测速结果（按 sourceHideID）

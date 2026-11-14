@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"image"
 	"os"
 	"path/filepath"
@@ -899,5 +900,73 @@ func TestSearchLaneKeepsMoreThanOneRail(t *testing.T) {
 	lane, _ = searchLane(ballots[:24])
 	if len(lane.Items) != 24 {
 		t.Fatalf("a short search must show all hits, got %d", len(lane.Items))
+	}
+}
+
+// manySrc is a CMS source whose identity comes from its number, so one test
+// can stand in for thousands.
+type manySrc struct{ n int }
+
+func (s manySrc) Meta() source.Meta {
+	return source.Meta{
+		Key: fmt.Sprintf("k%04d", s.n), Name: fmt.Sprintf("源%04d", s.n),
+		API:  fmt.Sprintf("https://h%04d.example.invalid/vod", s.n),
+		Kind: config.KindCMSJSON, Level: config.LevelYes,
+	}
+}
+func (s manySrc) Categories(context.Context) ([]model.Category, error)    { return nil, nil }
+func (s manySrc) List(context.Context, string, int) (model.Page, error)   { return model.Page{}, nil }
+func (s manySrc) Search(context.Context, string, int) (model.Page, error) { return model.Page{}, nil }
+func (s manySrc) Detail(context.Context, string) (model.Detail, error)    { return model.Detail{}, nil }
+func (s manySrc) Resolve(context.Context, string, model.Episode) (model.Playable, error) {
+	return model.Playable{}, nil
+}
+
+// A large subscription must not make the management page lag: the list is
+// virtual (only the rows in view are built) and its rows are computed once
+// per change, not once per frame.
+func TestSourcesPageWithManySources(t *testing.T) {
+	a := New()
+	a.settingsPath = ""
+	a.catalog = &source.Catalog{}
+	sites := make([]source.Source, 3000)
+	for i := range sites {
+		sites[i] = manySrc{i}
+	}
+	a.allSites = sites
+	a.screen, a.sideSel, a.lastSide = screenSources, "manage", "manage"
+	tt := ui.NewTester(a.View, 1280, 820)
+	tt.Frame()
+
+	// The virtual list builds only the rows in view, never all 3000.
+	built := 0
+	for _, txt := range tt.Texts() {
+		if strings.HasPrefix(txt, "源") {
+			built++
+		}
+	}
+	if built == 0 || built > 100 {
+		t.Fatalf("virtual list built %d of 3000 rows", built)
+	}
+	if !tt.HasText("共 3000 个片源") {
+		t.Fatalf("summary missing in %q", tt.Texts())
+	}
+
+	// An unchanged frame reuses the computed rows.
+	cached := a.sourceRows()
+	tt.Frame()
+	if a.sourceRows() != cached {
+		t.Fatal("source rows recomputed although no input changed")
+	}
+
+	// The search box filters the whole list, not just the rows shown.
+	a.srcFilter = "0001"
+	tt.Frame()
+	list := a.sourceRows()
+	if len(list.sites) != 1 || len(list.rows) != 1 {
+		t.Fatalf("filter kept %d sites, %d rows", len(list.sites), len(list.rows))
+	}
+	if !tt.HasText("源0001") {
+		t.Fatalf("filtered source missing in %q", tt.Texts())
 	}
 }

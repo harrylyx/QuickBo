@@ -28,11 +28,6 @@ const (
 	srcGroupSub    = "按订阅分组"
 	srcGroupKind   = "按类型分组"
 	srcGroupHealth = "按健康度分组"
-
-	// sourcePageRows bounds the rows built in one frame. A 10k-site
-	// subscription would otherwise rebuild ten thousand widgets per frame;
-	// the search box and the "more" button still reach every source.
-	sourcePageRows = 200
 )
 
 var (
@@ -101,16 +96,8 @@ func (a *App) viewSources(c *ui.Context, th *ui.Theme) {
 			return
 		}
 
-		sites := a.filteredSites()
-		matched := len(sites)
-		limit := a.srcShown
-		if limit < sourcePageRows {
-			limit = sourcePageRows
-		}
-		if len(sites) > limit {
-			sites = sites[:limit]
-		}
-		total, ok, fail, untested, avg := a.sourceSummary()
+		list := a.sourceRows()
+		total, ok, fail, untested, avg := list.total, list.ok, list.fail, list.untested, list.avg
 		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 			ui.Text(c, fmt.Sprintf("共 %d 个片源", total)).FontSize(fontCaption).TextColor(th.TextMuted)
 			ui.Text(c, "·").FontSize(fontCaption).TextColor(th.TextMuted)
@@ -135,50 +122,49 @@ func (a *App) viewSources(c *ui.Context, th *ui.Theme) {
 			}
 		})
 
-		if len(sites) == 0 {
+		if len(list.rows) == 0 {
 			ui.Text(c, "没有符合当前筛选的片源").TextColor(th.TextMuted)
 			return
 		}
 
 		if a.srcBatch {
-			stop := a.sourceBatchBar(c, th, sites)
+			stop := a.sourceBatchBar(c, th, list.sites)
 			if stop {
 				return
 			}
 		}
 
 		active := a.activeSiteKeys()
-		ui.Scroll(c).Grow(1).Children(func() {
-			ui.Column(c).Gap(16).Children(func() {
-				for _, g := range a.groupSources(sites) {
-					g := g
-					if g.name != "" {
-						ui.Text(c, g.name).FontSize(fontCaption).Bold().TextColor(th.TextMuted)
-					}
-					ui.Column(c).Gap(8).Children(func() {
-						stop := false
-						for _, s := range g.sites {
-							stop = a.sourceRow(c, th, s, active)
-							if stop {
-								break
-							}
-						}
-						if stop {
-							return
-						}
-					})
-				}
-			})
-		})
-		if matched > len(sites) {
-			ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
-				ui.Text(c, fmt.Sprintf("共 %d 个片源，当前显示 %d 个；可搜索，或继续加载", matched, len(sites))).
-					FontSize(fontCaption).TextColor(th.TextMuted)
-				if ui.Button(c, "再显示一批").Clicked() {
-					a.srcShown = limit + sourcePageRows
-				}
-			})
+		rows := list.rows
+		a.srcList.Key = func(i int) any {
+			if i < len(rows) {
+				return rows[i].id
+			}
+			return i
 		}
+		a.srcList.Header = func(i int) bool {
+			return i < len(rows) && rows[i].head != ""
+		}
+		stop := false
+		// ui.List is virtual: it builds only the rows in view, so a
+		// subscription of any size scrolls as smoothly as a small one. The
+		// sorted, filtered rows themselves come from a.sourceRows, cached
+		// until their inputs change.
+		ui.List(c, &a.srcList, len(rows), func(i int) {
+			if stop || i >= len(rows) {
+				return
+			}
+			r := rows[i]
+			if r.head != "" {
+				ui.Box(c.Key(r.id)).FillWidth().Background(th.Background).Padding(6, 14).Children(func() {
+					ui.Text(c, r.head).FontSize(fontCaption).Bold().TextColor(th.TextMuted).SingleLine()
+				})
+				return
+			}
+			if a.sourceRow(c, th, r.site, active) {
+				stop = true
+			}
+		}).Gap(8).Grow(1)
 	})
 }
 
@@ -341,19 +327,6 @@ func (a *App) selectedSourceKeys() []string {
 	return out
 }
 
-// activeSiteKeys maps every catalog source key that actually passed the probe
-// (or came from cache) to true, so the view can tell "working" from disabled
-// or failed sources.
-func (a *App) activeSiteKeys() map[string]bool {
-	out := map[string]bool{}
-	if a.catalog != nil {
-		for _, s := range a.catalog.Sites {
-			out[s.Meta().Key] = true
-		}
-	}
-	return out
-}
-
 // visibleSources lists every source that is not removed or blacklisted.
 func (a *App) visibleSources() []source.Source {
 	out := make([]source.Source, 0, len(a.allSites))
@@ -389,8 +362,9 @@ func matchesSource(m source.Meta, q string) bool {
 		strings.Contains(strings.ToLower(m.API), q)
 }
 
-func (a *App) sortedSources() []source.Source {
-	out := a.visibleSources()
+// sortSources orders the visible sources for the management list. It sorts
+// the slice in place; the caller passes a slice it owns.
+func (a *App) sortSources(out []source.Source) {
 	sort.SliceStable(out, func(i, j int) bool {
 		mi, mj := out[i].Meta(), out[j].Meta()
 		sti, stj := a.stats[mi.Key], a.stats[mj.Key]
@@ -412,7 +386,6 @@ func (a *App) sortedSources() []source.Source {
 		}
 		return mi.Name < mj.Name
 	})
-	return out
 }
 
 // delaySortKey orders sources by latency with successes first, untested next,
@@ -428,45 +401,147 @@ func delaySortKey(st sourceStat) int {
 	}
 }
 
-// filteredSites applies the health filter and the search box to the sorted,
-// visible source list.
-func (a *App) filteredSites() []source.Source {
-	srcs := a.sortedSources()
-	q := strings.ToLower(strings.TrimSpace(a.srcFilter))
-	out := srcs[:0]
-	for _, s := range srcs {
-		m := s.Meta()
-		if !a.passesHealth(m.Key) {
-			continue
-		}
-		if q != "" && !matchesSource(m, q) {
-			continue
-		}
-		out = append(out, s)
-	}
-	return out
+// srcListKey captures every input the management list derives from, so the
+// sort, the filters and the grouping run once per change, not once per frame.
+type srcListKey struct {
+	filter, sortKey, health, view string
+	gen                           int
+	catalog                       *source.Catalog
+	sites, hidden, disabled       int
+	blacklist, stats              int
+	digest                        uint64
 }
 
-// sourceSummary counts the visible sources by health and returns the average
-// latency over the ones that answered.
-func (a *App) sourceSummary() (total, ok, fail, untested, avg int) {
-	for _, s := range a.visibleSources() {
+// srcActiveKey identifies the catalog state behind the active-source map.
+type srcActiveKey struct {
+	catalog *source.Catalog
+	n       int
+	gen     int
+}
+
+// srcRow is one row of the management list: a group header (head set) or a
+// source (site set).
+type srcRow struct {
+	id   string // stable identity for the virtual list
+	head string
+	site source.Source
+}
+
+// srcRows is the management list computed for one set of inputs: the
+// sorted, filtered sources (sites), the flattened rows with group headers
+// (rows), and the health summary over every visible source.
+type srcRows struct {
+	key                            srcListKey
+	sites                          []source.Source
+	rows                           []srcRow
+	total, ok, fail, untested, avg int
+}
+
+// sourceRows returns the management list, cached until any input it derives
+// from changes. A frame that only scrolls or hovers then costs nothing but
+// the rows in view.
+func (a *App) sourceRows() *srcRows {
+	k := a.sourceListKey()
+	if a.srcCache != nil && a.srcCache.key == k {
+		return a.srcCache
+	}
+	r := &srcRows{key: k}
+	vis := a.visibleSources()
+	for _, s := range vis {
 		st := a.stats[s.Meta().Key]
-		total++
+		r.total++
 		switch {
 		case st.Err != "" || st.Delay < 0:
-			fail++
+			r.fail++
 		case st.Delay > 0:
-			ok++
-			avg += st.Delay
+			r.ok++
+			r.avg += st.Delay
 		default:
-			untested++
+			r.untested++
 		}
 	}
-	if ok > 0 {
-		avg /= ok
+	if r.ok > 0 {
+		r.avg /= r.ok
 	}
-	return
+	a.sortSources(vis)
+	r.sites = vis
+	q := strings.ToLower(strings.TrimSpace(a.srcFilter))
+	if (a.srcHealth != "" && a.srcHealth != srcShowAll) || q != "" {
+		kept := make([]source.Source, 0, len(vis))
+		for _, s := range vis {
+			m := s.Meta()
+			if !a.passesHealth(m.Key) {
+				continue
+			}
+			if q != "" && !matchesSource(m, q) {
+				continue
+			}
+			kept = append(kept, s)
+		}
+		r.sites = kept
+	}
+	for _, g := range a.groupSources(r.sites) {
+		if g.name != "" {
+			r.rows = append(r.rows, srcRow{id: "srch:" + g.name, head: g.name})
+		}
+		for _, s := range g.sites {
+			r.rows = append(r.rows, srcRow{id: "src:" + s.Meta().Key, site: s})
+		}
+	}
+	a.srcCache = r
+	return r
+}
+
+// sourceListKey snapshots the inputs of the management list. The stats
+// digest (order-independent) catches probe results, which rewrite entries
+// without changing the map's length; the gen counter catches a reload that
+// leaves every length as it was.
+func (a *App) sourceListKey() srcListKey {
+	k := srcListKey{
+		filter: a.srcFilter, sortKey: a.srcSort, health: a.srcHealth, view: a.srcView,
+		gen:       a.gen,
+		catalog:   a.catalog,
+		sites:     len(a.allSites),
+		hidden:    len(a.hidden),
+		disabled:  len(a.disabled),
+		blacklist: len(a.blacklist),
+		stats:     len(a.stats),
+	}
+	for key, st := range a.stats {
+		k.digest += uint64(st.Delay)<<20 ^ uint64(len(st.Err)) ^ uint64(fnv32(key))*0x9e3779b97f4a7c15
+	}
+	return k
+}
+
+func fnv32(s string) uint32 {
+	h := uint32(2166136261)
+	for i := 0; i < len(s); i++ {
+		h ^= uint32(s[i])
+		h *= 16777619
+	}
+	return h
+}
+
+// activeSiteKeys maps every catalog source key that actually passed the probe
+// (or came from cache) to true, so the view can tell "working" from disabled
+// or failed sources. Cached by catalog identity and size: removeSites and
+// disableSites filter a.catalog.Sites in place without changing the pointer.
+func (a *App) activeSiteKeys() map[string]bool {
+	k := srcActiveKey{catalog: a.catalog, gen: a.gen}
+	if a.catalog != nil {
+		k.n = len(a.catalog.Sites)
+	}
+	if a.srcActive != nil && a.srcActiveKey == k {
+		return a.srcActive
+	}
+	out := map[string]bool{}
+	if a.catalog != nil {
+		for _, s := range a.catalog.Sites {
+			out[s.Meta().Key] = true
+		}
+	}
+	a.srcActive, a.srcActiveKey = out, k
+	return out
 }
 
 type sourceGroup struct {
