@@ -35,7 +35,7 @@ export default function Nav() {
                 <div className="nav__menu">
                   <div className="wrap grid">
                     <div className="menu-col span-3">
-                      <p className="t-label">播放器</p>
+                      <p className="t-label">媒体库</p>
                       {MENU_LINKS.slice(0, 3).map((item) => (
                         <a href={item.href} key={item.label}>
                           {item.label}<span>{item.note}</span>
@@ -49,13 +49,13 @@ export default function Nav() {
                           {item.label}<span>{item.note}</span>
                         </a>
                       ))}
-                      <a href="#window">界面预览<span>首页、线路和播放</span></a>
+                      <a href="#window">界面预览<span>电影、剧集和直播</span></a>
                     </div>
                     <div className="menu-card span-3 start-10 qb-menu-card">
                       <span className="t-label">装好之后</span>
-                      <span className="qb-menu-card__line">没有自带影片</span>
-                      <span className="qb-menu-card__line">加上 TVBox 或 FongMi</span>
-                      <span className="qb-menu-card__line">打开就能看</span>
+                      <span className="qb-menu-card__line">不提供影视内容</span>
+                      <span className="qb-menu-card__line">导入你的订阅</span>
+                      <span className="qb-menu-card__line">建立自己的片库</span>
                     </div>
                   </div>
                 </div>

@@ -7,8 +7,8 @@ export default function Install() {
     <section className="section" id="install" aria-labelledby="install-h">
       <div className="wrap">
         <div className="section-head">
-          <h2 id="install-h">下载到你的电脑</h2>
-          <p className="t-lead muted">Mac、Windows 和 Linux 都能装，用来看你的 TVBox、FongMi 订阅。</p>
+          <h2 id="install-h">在电脑上，享受更完整的观影体验</h2>
+          <p className="t-lead muted">QuickBo 免费提供 macOS、Windows 和 Linux 版本。选择对应的安装包即可开始使用。</p>
         </div>
         <div className="grid qb-platforms">
           {PLATFORMS.map((platform) => (
@@ -32,7 +32,7 @@ export default function Install() {
           <a className="link qb-install-foot__repo" href={RELEASES}><GithubMark size={15} /> 查看全部版本</a>
         </div>
         <p className="t-small muted qb-install-note">
-          第一次打开，系统可能会拦一下，点允许就行。这一版需要手动安装，之后可以在应用里更新。
+          首次启动时，系统可能出现安全提示，请根据提示允许打开。当前版本需要手动安装，后续可在应用内更新。
         </p>
       </div>
     </section>

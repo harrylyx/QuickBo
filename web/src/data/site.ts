@@ -11,10 +11,10 @@ export const NAV_LINKS = [
 ] as const;
 
 export const MENU_LINKS = [
-  { label: '多份订阅', href: '#features', note: '合成一个首页' },
-  { label: '搜索', href: '#features', note: '一次找完全部片子' },
-  { label: '播放', href: '#features', note: '全屏、小窗和字幕' },
-  { label: '添加订阅', href: '#sources', note: 'TVBox 或 FongMi 地址' },
+  { label: '多份订阅', href: '#features', note: '汇总成一个媒体库' },
+  { label: '全局搜索', href: '#features', note: '一次检索所有订阅' },
+  { label: '线路切换', href: '#features', note: '同一影片集中展示' },
+  { label: '导入订阅', href: '#sources', note: '地址或本地文件' },
 ] as const;
 
 export const FOOTER_COLUMNS = [

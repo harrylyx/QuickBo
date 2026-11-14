@@ -8,8 +8,8 @@ export default function Footer() {
         <div className="closing__cta close--word">
           <div className="section-head--split">
             <div>
-              <h2 id="close-h">下载，加上 TVBox、FongMi 订阅</h2>
-              <p className="t-lead">免费。Mac、Windows、Linux 都能用。</p>
+              <h2 id="close-h">管理好你的片源，在电脑上开始观看</h2>
+              <p className="t-lead">免费使用，支持 macOS、Windows 和 Linux。</p>
             </div>
             <a className="btn btn--primary" href="#install">{MAIN_ACTION}<Arrow /></a>
           </div>
@@ -22,7 +22,7 @@ export default function Footer() {
                 <img src="./icon.png" width="26" height="26" alt="" loading="lazy" />
                 QuickBo
               </a>
-              <p className="footer__lede">电脑上的 TVBox、FongMi 播放器。片源由你自己添加。</p>
+              <p className="footer__lede">让你的影视订阅，在电脑上也能轻松使用。</p>
             </div>
             {FOOTER_COLUMNS.map((column) => (
               <div className="span-3 footer__col" key={column.title}>

@@ -13,7 +13,7 @@
     #241a18;
 }
 .hero-notice { color: var(--p-accent); font-weight: 500; }
-.hero__lead { max-width: 30ch; }
+.hero__lead { max-width: 36em; }
 .hero__proof { color: var(--muted); font-size: var(--t-small); }
 .hero__art > .ly-piece--note { left: var(--s-6); bottom: var(--s-6); width: 300px; z-index: 2; }
 
@@ -104,7 +104,7 @@ html[data-theme="light"] .qb-frag { --f-bg: #fff; --f-ink: #1d1b1a; --f-muted: #
 .qb-frag__chips span { padding: 3px 8px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); color: var(--f-muted); font-size: 11px; }
 
 /* sources */
-.qb-sources-lead { max-width: 32ch; }
+.qb-sources-lead { max-width: 34em; }
 .qb-facts { display: flex; flex-direction: column; gap: 14px; margin-top: 32px; }
 .qb-fact { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 16px; align-items: baseline; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
 .qb-fact b { font-size: var(--t-small); font-weight: 650; }

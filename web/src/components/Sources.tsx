@@ -6,9 +6,9 @@ export default function Sources() {
       <div className="wrap">
         <div className="grid grid--top qb-sources-grid">
           <div className="span-5">
-            <h2 id="sources-h">贴上 TVBox 或 FongMi 订阅</h2>
+            <h2 id="sources-h">导入你的订阅，建立自己的媒体库</h2>
             <p className="t-lead qb-sources-lead">
-              把 TVBox、FongMi 的订阅地址贴进来，或打开电脑里的文件。首页会出现海报。
+              通过订阅地址或本地文件导入片源。QuickBo 会根据内容类型整理电影、剧集和直播，让分散的资源在一个界面中井然有序。
             </p>
             <div className="qb-facts">
               {SOURCE_FACTS.map((fact) => (
@@ -17,10 +17,9 @@ export default function Sources() {
                 </div>
               ))}
             </div>
-            <p className="t-small muted qb-sources-formats">TVBox 和 FongMi 的订阅地址、本地文件都能打开。</p>
           </div>
           <div className="span-6 start-7">
-            <div className="qb-code qb-add" role="img" aria-label="添加 TVBox 或 FongMi 订阅：贴上地址，或打开电脑里的文件">
+            <div className="qb-code qb-add" role="img" aria-label="添加订阅：贴上地址，或打开电脑里的文件">
               <div className="qb-code__bar" aria-hidden="true"><i /><i /><i /><span>添加订阅</span></div>
               <div className="qb-add__body">
                 <p className="qb-add__label">订阅地址</p>

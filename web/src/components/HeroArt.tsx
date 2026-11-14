@@ -29,7 +29,7 @@ export default function HeroArt() {
     <div
       className="hero__art span-6 start-7"
       role="img"
-      aria-label="QuickBo 的窗口：TVBox 订阅的首页和海报"
+      aria-label="QuickBo 的窗口：左边是首页和收藏，中间是海报"
     >
       <div className="ly-piece ly-piece--main qb-hero-win" aria-hidden="true">
         <div className="qb-hero-win__bar">

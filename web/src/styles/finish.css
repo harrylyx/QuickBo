@@ -22,8 +22,12 @@
 #features .panel { --p-h: 400px; }
 .qb-feature-stage { background: radial-gradient(80% 90% at 18% 0%, rgba(255, 145, 96, 0.18), transparent 70%), linear-gradient(120deg, transparent 0 46%, rgba(255, 255, 255, 0.025) 46% 47%, transparent 47%), var(--surface); }
 .qb-frag { width: min(94%, 430px); }
-.qb-statement .mo-wh__text { margin-top: 40px; font-size: clamp(28px, 3.2vw, 38px); line-height: 1.55; }
-.qb-statement__foot { margin-top: 32px; }
+.qb-statement .mo-wh__text {
+  max-width: 34em; margin-top: 28px;
+  font-family: var(--font-text); font-size: var(--t-lead); font-weight: 400;
+  line-height: 1.7; letter-spacing: 0; word-spacing: normal;
+}
+.qb-statement__foot { margin-top: 20px; }
 .qb-sources-formats { margin-top: 20px; }
 
 .qb-platform {
