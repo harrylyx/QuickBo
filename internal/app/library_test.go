@@ -98,6 +98,7 @@ func TestBackReturnsWhereItCameFrom(t *testing.T) {
 	// the title, then the history page.
 	a.sideSel, a.lastSide, a.screen = "history", "history", screenHistory
 	a.playHistory(w)
+	waitDetail(t, a)
 	if _, ep := a.overlayTitle(); ep != "第2集" {
 		t.Fatalf("the resumed episode must show: %q", ep)
 	}
@@ -116,6 +117,7 @@ func TestBackReturnsWhereItCameFrom(t *testing.T) {
 	a.sideSel, a.screen = "home", screenHome
 	a.detail = &model.Detail{ID: "9", Title: "别的片", Lines: []model.Line{{Name: "l", Episodes: []model.Episode{{Name: "e"}}}}}
 	a.playHistory(w)
+	waitDetail(t, a)
 	a.back()
 	if a.screen != screenDetail {
 		t.Fatalf("continue watching → back went to %q", a.screen)
@@ -261,12 +263,21 @@ func TestContinueWatchingResumesEpisodeAndBacksToDetail(t *testing.T) {
 	if a.screen != screenPlay {
 		t.Fatalf("opened %q", a.screen)
 	}
+	// Poll under postMu, as the other waiters do: the resume happens in a
+	// post callback on a background goroutine.
 	deadline := time.Now().Add(5 * time.Second)
-	for a.playIndex != 1 && time.Now().Before(deadline) {
+	idx, line := -1, ""
+	for time.Now().Before(deadline) {
+		a.postMu.Lock()
+		idx, line = a.playIndex, a.playLine
+		a.postMu.Unlock()
+		if idx == 1 {
+			break
+		}
 		time.Sleep(2 * time.Millisecond)
 	}
-	if a.playIndex != 1 || a.playLine != "线路一" {
-		t.Fatalf("resume landed on index %d line %q", a.playIndex, a.playLine)
+	if idx != 1 || line != "线路一" {
+		t.Fatalf("resume landed on index %d line %q", idx, line)
 	}
 	if !a.hasEpisode(1) || !a.hasEpisode(-1) {
 		t.Fatal("neighboring episodes must be reachable")

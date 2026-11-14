@@ -300,23 +300,24 @@ func (a *App) fetchHistoryDetail(w watchItem) {
 			if a.detail == nil || a.detail.ID != id {
 				return
 			}
-			a.detailLoading = false
 			if err != nil {
 				a.detailErr = err.Error()
-				return
+			} else {
+				if d.ID == "" {
+					d.ID = id
+				}
+				if d.Title == "" {
+					d.Title = w.Title
+				}
+				if d.Pic == "" {
+					d.Pic = w.Pic
+				}
+				a.detail = &d
+				a.detailErr = ""
+				a.placeHistoryEpisode(w)
 			}
-			if d.ID == "" {
-				d.ID = id
-			}
-			if d.Title == "" {
-				d.Title = w.Title
-			}
-			if d.Pic == "" {
-				d.Pic = w.Pic
-			}
-			a.detail = &d
-			a.detailErr = ""
-			a.placeHistoryEpisode(w)
+			// Set last: waiters treat the cleared flag as "state is ready".
+			a.detailLoading = false
 		})
 	}()
 }

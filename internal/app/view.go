@@ -71,26 +71,28 @@ func (a *App) animateCard(card, frame ui.Element, hot, light bool) {
 // rail, a full-bleed hero, and a poster wall. Red is reserved for the
 // primary action and for progress.
 func (a *App) View(c *ui.Context) {
-	if a.px.pip {
-		// A click can order this window front after enterPip hid it. Stay
-		// hidden while the picture is in the small window.
-		if a.win != nil && a.win.IsVisible() {
-			a.win.Hide()
+	a.drawFrame(func() {
+		if a.px.pip {
+			// A click can order this window front after enterPip hid it. Stay
+			// hidden while the picture is in the small window.
+			if a.win != nil && a.win.IsVisible() {
+				a.win.Hide()
+			}
+			return
 		}
-		return
-	}
-	th := a.useTheme(c)
-	a.watchLivePlayback()
-	a.playerKeys(c)
-	ui.Box(c.Key("shell")).Fill().Background(th.Background).Children(func() {
-		if a.catalog == nil {
-			a.viewWelcome(c, th)
-		} else {
-			a.viewMain(c, th)
-		}
+		th := a.useTheme(c)
+		a.watchLivePlayback()
+		a.playerKeys(c)
+		ui.Box(c.Key("shell")).Fill().Background(th.Background).Children(func() {
+			if a.catalog == nil {
+				a.viewWelcome(c, th)
+			} else {
+				a.viewMain(c, th)
+			}
+		})
+		a.viewSubs(c, th)
+		a.viewSettings(c, th)
 	})
-	a.viewSubs(c, th)
-	a.viewSettings(c, th)
 }
 
 // viewMain is the app itself: the fullscreen player or the sidebar shell.

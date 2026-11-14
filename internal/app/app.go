@@ -1258,6 +1258,22 @@ func (a *App) post(fn func()) {
 	})
 }
 
+// drawFrame runs one frame of a view. With a window, rendering and post
+// callbacks share the UI thread, so they are serialized by construction.
+// Without one (headless tests), the post fallback runs its callbacks on
+// background goroutines under postMu; taking postMu around the whole
+// frame keeps those callbacks from writing App state while the frame
+// reads it, mirroring the windowed behavior.
+func (a *App) drawFrame(view func()) {
+	if a.win != nil {
+		view()
+		return
+	}
+	a.postMu.Lock()
+	defer a.postMu.Unlock()
+	view()
+}
+
 func (a *App) closePlayer() {
 	embedded := a.embedded()
 	if a.player != nil {

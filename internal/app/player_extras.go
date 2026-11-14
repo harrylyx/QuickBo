@@ -521,15 +521,17 @@ func (a *App) exitPip() {
 
 // PipView is the floating window's content.
 func (a *App) PipView(c *ui.Context) {
-	th := a.useTheme(c)
-	// The main window is hidden, so the failover watch has to run here.
-	a.watchLivePlayback()
-	a.playerKeys(c)
-	if !a.px.pip || a.player == nil {
-		ui.Box(c).Fill().Background(ui.Hex("#000000"))
-		return
-	}
-	a.viewPip(c, th)
+	a.drawFrame(func() {
+		th := a.useTheme(c)
+		// The main window is hidden, so the failover watch has to run here.
+		a.watchLivePlayback()
+		a.playerKeys(c)
+		if !a.px.pip || a.player == nil {
+			ui.Box(c).Fill().Background(ui.Hex("#000000"))
+			return
+		}
+		a.viewPip(c, th)
+	})
 }
 
 // viewPip is the floating window: the picture edge to edge; the pointer over
