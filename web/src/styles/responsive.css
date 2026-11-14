@@ -1,0 +1,61 @@
+/* The same grade and order at tablet and phone widths: text first, then the visual. */
+@media (min-width: 640px) and (max-width: 1023px) {
+  .qb-hero-win { height: 420px; }
+  .qb-hero-win__side { width: 92px; }
+  .qb-hero-win__banner { height: 92px; }
+  .qb-hero-win__label { margin: 10px 0 6px; }
+  .qb-hero-poster { width: 58px; height: 82px; }
+  .qb-hero-note { width: 260px; }
+  .qb-window { height: clamp(420px, 62vh, 560px); }
+  .qb-side { width: 168px; }
+  .qb-dock-meta { display: none; }
+  .qb-fact { grid-template-columns: 1fr; gap: 4px; }
+  #features .panel { --p-h: 220px; }
+}
+
+@media (max-width: 639px) {
+  .hero__lead { max-width: none; }
+  .qb-hero-win { height: 300px; }
+  .qb-hero-win__bar { height: 30px; padding: 0 10px; }
+  .qb-hero-win__side { display: none; }
+  .qb-hero-win__main { padding: 10px 12px; }
+  .qb-hero-win__banner { height: 78px; margin-top: 8px; padding: 10px 12px; }
+  .qb-hero-win__banner b { font-size: 14px; }
+  .qb-hero-win__label { margin: 8px 0 5px; font-size: 10.5px; }
+  .qb-hero-win__label + .qb-hero-posters { display: none; }
+  .qb-hero-poster { width: 52px; height: 72px; }
+  .qb-hero-note { display: none; }
+
+  .qb-window { height: 520px; margin-top: 24px; }
+  .qb-win-body { flex-direction: column; }
+  .qb-side {
+    width: auto; flex: none; flex-direction: row; align-items: center; gap: 6px;
+    padding: 8px; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--qb-line);
+  }
+  .qb-traffic, .qb-search-field, .qb-side-label, .qb-side-brand span, .qb-side-btn span { display: none; }
+  .qb-side-brand { padding: 0 4px; }
+  .qb-side-nav, .qb-side-foot { flex-direction: row; margin: 0; padding: 0; border: 0; gap: 3px; }
+  .qb-side-btn { width: 34px; height: 32px; justify-content: center; padding: 0; }
+  .qb-main { padding: 14px 14px 60px; }
+  .qb-greet h3 { font-size: 19px; }
+  .qb-banner { height: 118px; }
+  .qb-detail { grid-template-columns: 96px minmax(0, 1fr); gap: 12px; }
+  .qb-detail-art { width: 96px; height: 140px; }
+  .qb-detail-body h3 { font-size: 20px; }
+  .qb-line { font-size: 11px; }
+  .qb-dock { gap: 8px; padding: 0 10px; }
+  .qb-dock-art, .qb-dock-meta { display: none; }
+  .qb-modes button span { display: none; }
+  .qb-modes button { padding: 0 10px; }
+
+  #features .panel { --p-h: 190px; }
+  .qb-frag { width: 92%; padding: 12px; font-size: 11.5px; }
+  .qb-fact { grid-template-columns: 1fr; gap: 4px; }
+  .qb-sources-lead { max-width: none; }
+  .qb-code pre { padding: 18px 16px; font-size: 11.5px; }
+  .qb-code__foot { padding: 12px 16px 16px; }
+  .qb-statement .mo-wh__text { max-width: none; margin-top: 40px; word-spacing: 0.04em; }
+  .qb-platforms { margin-top: 28px; }
+  .qb-platform__files { padding: 12px; }
+  .close--word .close__word { font-size: 20vw; }
+}

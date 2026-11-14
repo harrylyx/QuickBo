@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.taste-skill/chrome-*/
+.taste-skill/gate/
+.taste-skill/*.log
+.taste-skill/*.json
+!.taste-skill/waivers.json
+shots/
+dist/.taste-skill/
+*.log

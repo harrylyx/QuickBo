@@ -1,0 +1,12 @@
+[
+  {
+    "check": "hero-lines",
+    "target": "section.hero h1",
+    "reason": "中文 CJK 页面：check.mjs 按 heroes.json 的 48 个拉丁字符压测 h1，实际 h1 为两行、首屏完整，压测字符宽度不适用中文。"
+  },
+  {
+    "check": "hero-maxchars",
+    "target": "section.hero.hero--collage",
+    "reason": "同上：只有把 48 个 CJK 字符塞进 h1 时首屏才变成 1.08 屏；页面真实文案下 hero 正好 844px。"
+  }
+]

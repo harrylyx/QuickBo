@@ -1,0 +1,46 @@
+/* QuickBo's own grade: the app icon's near-black ground, warm ink and orange-red accent.
+   The kit keeps one system; these are only its palette tokens plus the demo window's own tokens. */
+#root { display: contents; }
+
+html[data-theme="light"] {
+  --p-bg: #fbf7f1; --p-surface: #f0e9e0; --p-ink: #1d1b1a; --p-muted: #625c58;
+  --p-accent: #c4322a; --p-accent-ink: #fff; --p-action: #c4322a; --p-action-ink: #fff;
+  --p-inv-bg: #171312; --p-inv-surface: #26201e; --p-inv-ink: #f5f0ea; --p-inv-muted: #a9a19c;
+  --p-inv-accent: #ff6a5c; --p-inv-accent-ink: #1a0c0a; --p-inv-action: #ff6a5c; --p-inv-action-ink: #1a0c0a;
+}
+
+html { scroll-behavior: auto; }
+body { -webkit-font-smoothing: antialiased; }
+::selection { background: var(--p-accent); color: var(--p-accent-ink); }
+a { color: inherit; }
+
+.qb-sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+.qb-window {
+  --qb-bg: #121113;
+  --qb-side: #191618;
+  --qb-ink: #f4efeb;
+  --qb-muted: #9d9693;
+  --qb-line: rgba(255, 255, 255, 0.09);
+  --qb-fill: rgba(255, 255, 255, 0.05);
+  --qb-hover: rgba(255, 255, 255, 0.09);
+  --qb-accent: #ff5b3c;
+  --qb-accent-ink: #17100e;
+  --qb-shadow: rgba(0, 0, 0, 0.55);
+}
+
+html[data-theme="light"] .qb-window {
+  --qb-bg: #ffffff;
+  --qb-side: #f5f4f2;
+  --qb-ink: #1d1b1a;
+  --qb-muted: #6d6662;
+  --qb-line: rgba(0, 0, 0, 0.09);
+  --qb-fill: rgba(0, 0, 0, 0.045);
+  --qb-hover: rgba(0, 0, 0, 0.07);
+  --qb-accent: #c4322a;
+  --qb-accent-ink: #ffffff;
+  --qb-shadow: rgba(80, 40, 20, 0.18);
+}
