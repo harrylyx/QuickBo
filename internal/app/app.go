@@ -70,6 +70,7 @@ type App struct {
 	loadNote       string
 	adding         bool
 	settingsOpen   bool
+	updates        bool // the update plugin is used (UseUpdater)
 	welcomeEntered bool
 	urlDraft       string
 

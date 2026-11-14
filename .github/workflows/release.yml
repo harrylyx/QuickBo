@@ -1,4 +1,4 @@
-# 推送 v* 标签（如 v0.1.0）后，分平台打包并发布到 GitHub Release：
+# 推送 v* 标签（如 v0.1.0）后，分平台打包、签名更新并发布到 GitHub Release：
 #
 #   macOS    quickbo-<版本>-arm64.dmg / -amd64.dmg
 #   Windows  quickbo-setup-<版本>-amd64.exe / -arm64.exe（NSIS 安装程序）
@@ -6,12 +6,15 @@
 #            quickbo-<版本>-linux-amd64.tar.gz / -arm64.tar.gz（附 install.sh）
 #
 # 打包用 go.mod 里固定的 mygo CLI（go tool mygo build），配置在 mygo.json。
+# 标签发布带上密钥 MYGO_UPDATER_PRIVATE_KEY，mygo build -upload 把安装包、
+# 归档、差分包和 update-<系统>-<架构>.json 传到该版本的草稿 Release。
+# 三个平台都成功后，草稿改为正式发布。没有这些清单，已安装的应用更新不了。
 # mygo 不需要 cgo，Windows 和 Linux 都在 Ubuntu 上交叉编译；macOS 的 .app 签名
 # 和 .dmg 需要 macOS runner。目前没有开发者证书：macOS 是 ad hoc 签名，Windows
-# 未签名，README 里写了首次打开的处理办法。
+# 未签名，README 里写了首次打开的处理办法。更新签名和这套开发者签名是两回事。
 #
 # 也可以在 Actions 页手动运行（workflow_dispatch）：只打包、上传为构建产物，
-# 不发布 Release，用来检查各平台能否打包。
+# 不签名、不发布 Release，用来检查各平台能否打包。
 name: Release
 
 on:
@@ -36,6 +39,22 @@ jobs:
             echo "::error::标签 $GITHUB_REF_NAME 和 mygo.json 的版本 $want 不一致"
             exit 1
           fi
+      # 先建草稿，三个平台的 -upload 才写进同一次发布，而不是各自去创建。
+      - name: Create the draft release
+        if: github.event_name == 'push' && github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="$GITHUB_REF_NAME"
+          if gh release view "$tag" > /dev/null 2>&1; then
+            exit 0
+          fi
+          awk -v v="${tag#v}" '
+            /^## / { if (found) exit; found = index($0, "[" v "]") > 0 || index($0, " " v) > 0; next }
+            found
+          ' CHANGELOG.md > notes.md 2>/dev/null || true
+          if [ -s notes.md ]; then notes=(--notes-file notes.md); else notes=(--generate-notes); fi
+          gh release create "$tag" --draft --verify-tag --title "QuickBo $tag" "${notes[@]}"
 
   build:
     needs: check
@@ -78,8 +97,16 @@ jobs:
       - name: Bundle libmpv for Windows
         if: matrix.name == 'Windows'
         run: bash scripts/fetch-libmpv-windows.sh
+      # 手动运行不签名、不上传。标签发布才把清单传到草稿。
       - name: Build
+        if: github.event_name != 'push' || github.ref_type != 'tag'
         run: go tool mygo build -platform "${{ matrix.platform }}"
+      - name: Build and upload the signed update
+        if: github.event_name == 'push' && github.ref_type == 'tag'
+        env:
+          MYGO_UPDATER_PRIVATE_KEY: ${{ secrets.MYGO_UPDATER_PRIVATE_KEY }}
+          GH_TOKEN: ${{ github.token }}
+        run: go tool mygo build -platform "${{ matrix.platform }}" -upload
       # 确认两个架构的产物里确实带上了 dll 和许可证说明。
       - name: Check the bundled DLLs
         if: matrix.name == 'Windows'
@@ -100,28 +127,12 @@ jobs:
 
   release:
     needs: build
-    if: github.ref_type == 'tag'
+    if: github.event_name == 'push' && github.ref_type == 'tag'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/download-artifact@v8
-        with:
-          path: dist
-          merge-multiple: true
-      # 说明取 CHANGELOG.md 里这个版本的一节；没有的话用 GitHub 自动生成的。
+      # 安装包和 update-*.json 已由 mygo build -upload 传到草稿。
+      # 正式发布之后，已安装的应用才读得到这次的清单。
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          ls -la dist
-          awk -v v="${GITHUB_REF_NAME#v}" '
-            /^## / { if (found) exit; found = index($0, "[" v "]") > 0 || index($0, " " v) > 0; next }
-            found
-          ' CHANGELOG.md > notes.md 2>/dev/null || true
-          if [ -s notes.md ]; then notes=(--notes-file notes.md); else notes=(--generate-notes); fi
-          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" dist/* --clobber
-          else
-            gh release create "$GITHUB_REF_NAME" dist/* --verify-tag \
-              --title "QuickBo $GITHUB_REF_NAME" "${notes[@]}"
-          fi
+        run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false

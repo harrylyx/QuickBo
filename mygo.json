@@ -8,6 +8,10 @@
   "icon": "icon/icon.png",
   "main": "./cmd/quickbo",
   "out": "build",
+  "updates": {
+    "publicKey": "Bp2wcVZhQXht3kX6/STkNDSY0Xb79Ok/fpZsFZVlCZw=",
+    "github": "harrylyx/QuickBo"
+  },
   "macos": {
     "minimumSystemVersion": "12.0"
   },

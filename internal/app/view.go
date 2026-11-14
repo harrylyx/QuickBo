@@ -387,6 +387,8 @@ func (a *App) viewSettings(c *ui.Context, th *ui.Theme) {
 				}
 			})
 
+			a.viewUpdateSettings(c, th)
+
 			ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
 				if ui.PrimaryButton(c, "完成").Clicked() {
 					a.settingsOpen = false

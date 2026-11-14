@@ -63,13 +63,15 @@ QuickBo 用 [mygo](https://github.com/egoist/mygo) 的原生 GPU 界面（Metal 
 | Windows | `quickbo-setup-<版本>-amd64.exe` / `-arm64.exe` | **已内置对应架构的 `libmpv-2.dll`**，装好即可窗口内播放 |
 | Linux | `quickbo_<版本>_amd64.deb` / `_arm64.deb`，或 `.tar.gz`（内含 `install.sh`） | `.deb` 自动依赖 `libmpv2`；`.tar.gz` 需 `sudo apt install libmpv2` |
 
+带这个功能的版本起，可以在设置里检查并安装更新。macOS 的 `.dmg`、Windows 安装程序，以及 Linux `.tar.gz` 里的 `install.sh`，都能自己更新。`.deb` 装在系统目录里，仍由包管理器更新；在设置里检查时会说明原因。已发出的 0.1.0 没有这项功能，需要先手动装一版带更新的包。
+
 > 💡 **关于 libmpv**：QuickBo 用 libmpv 在窗口里解码播放。**Windows 安装包自带** `libmpv-2.dll`（[shinchiro/mpv-winbuild-cmake](https://github.com/shinchiro/mpv-winbuild-cmake/releases/tag/20261111) 的 `mpv-dev` 构建 `20261111-git-bcde6b93cc`，随包附 `libmpv-NOTICE.txt` 说明许可证与源码地址），无需另装；想换版本可直接替换程序目录里的同名文件。其它平台需自行安装：
 > - macOS：`brew install mpv`。
 > - Linux：`sudo apt install libmpv2`。
 >
 > 若 dll 缺失或加载失败（例如精简系统缺少 `vulkan-1.dll`），但装了 mpv 程序，会改用独立的 mpv 窗口播放（此时没有小窗、字幕面板等窗口内功能），并说明原因；两者都没有时，播放页会提示安装方法。
 
-> ⚠️ **首次打开提示**：安装包暂未做开发者签名。
+> ⚠️ **首次打开提示**：安装包暂未做开发者签名。应用内更新用的是另一把密钥，不能代替这次确认。
 > - **macOS** 提示「无法验证开发者」时：在「应用程序」里右键 QuickBo →「打开」，或执行
 >   `xattr -dr com.apple.quarantine /Applications/QuickBo.app`。
 > - **Windows** SmartScreen 提示「已保护你的电脑」时：点「更多信息」→「仍要运行」。
@@ -82,7 +84,7 @@ QuickBo 用 [mygo](https://github.com/egoist/mygo) 的原生 GPU 界面（Metal 
 2. **首页**浏览各分类、横幅推荐，或在顶部搜索全部片源。
 3. 点海报进详情页，选线路和剧集播放；**历史**、**收藏**在侧栏「资料库」。
 4. 侧栏 **管理**：订阅、片源（测速 / 停用 / 黑名单）、首页分类（拖动排序、导入导出）。
-5. 侧栏底部的 **设置** 切换外观。
+5. 侧栏底部的 **设置** 切换外观，并检查、安装应用更新。
 
 订阅和偏好保存在用户配置目录的 `quickbo/settings.json`（macOS 为 `~/Library/Application Support/quickbo/`），采集缓存在同目录的 `cache.json`。删掉 `settings.json` 就回到空壳。
 

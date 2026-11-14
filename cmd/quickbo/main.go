@@ -17,6 +17,7 @@ func main() {
 		*ref = flag.Arg(0)
 	}
 	application := app.New()
+	application.UseUpdater()
 	mygo.App.WhenReady(func() {
 		win := mygo.NewWindow(mygo.WindowOptions{
 			Title:     "QuickBo",
