@@ -20,8 +20,8 @@ export default function Features() {
     <section className="section" id="features" aria-labelledby="features-h">
       <div className="wrap">
         <div className="section-head">
-          <h2 id="features-h">多份订阅，一面海报墙</h2>
-          <p className="t-lead muted">订阅、搜索、换源和播放都在侧栏能到的地方。</p>
+          <h2 id="features-h">看片时用得上</h2>
+          <p className="t-lead muted">TVBox 和 FongMi 的订阅都能用。搜索、换线路、接着看，都在侧栏里。</p>
         </div>
         <div className="grid qb-feature-grid">
           {FEATURES.map((feature) => <Card feature={feature} key={feature.id} />)}

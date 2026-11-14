@@ -53,6 +53,7 @@
   .qb-fact { grid-template-columns: 1fr; gap: 4px; }
   .qb-sources-lead { max-width: none; }
   .qb-code pre { padding: 18px 16px; font-size: 11.5px; }
+  .qb-add__body { padding: 18px 16px 4px; }
   .qb-code__foot { padding: 12px 16px 16px; }
   .qb-statement .mo-wh__text { max-width: none; margin-top: 40px; word-spacing: 0.04em; }
   .qb-platforms { margin-top: 28px; }

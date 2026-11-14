@@ -49,8 +49,8 @@ export default function DemoSidebar() {
             id="qb-q"
             type="search"
             value={query}
-            placeholder="搜索全部片源"
-            aria-label="搜索全部片源"
+            placeholder="搜索影片"
+            aria-label="搜索影片"
             onChange={(event) => { setQuery(event.target.value); go('home'); }}
           />
         </div>

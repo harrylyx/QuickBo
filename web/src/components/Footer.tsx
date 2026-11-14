@@ -1,4 +1,4 @@
-import { FOOTER_COLUMNS, LICENSE, MAIN_ACTION, MYGO } from '../data/site';
+import { FOOTER_COLUMNS, LICENSE, MAIN_ACTION } from '../data/site';
 import { Arrow, GithubMark } from './Icons';
 
 export default function Footer() {
@@ -8,8 +8,8 @@ export default function Footer() {
         <div className="closing__cta close--word">
           <div className="section-head--split">
             <div>
-              <h2 id="close-h">装好之后，加一份订阅</h2>
-              <p className="t-lead">免费，以 MIT 开源。三个系统各有安装包。</p>
+              <h2 id="close-h">下载，加上 TVBox、FongMi 订阅</h2>
+              <p className="t-lead">免费。Mac、Windows、Linux 都能用。</p>
             </div>
             <a className="btn btn--primary" href="#install">{MAIN_ACTION}<Arrow /></a>
           </div>
@@ -22,7 +22,7 @@ export default function Footer() {
                 <img src="./icon.png" width="26" height="26" alt="" loading="lazy" />
                 QuickBo
               </a>
-              <p className="footer__lede">给桌面用的 TVBox 播放器。订阅由你自己添加。</p>
+              <p className="footer__lede">电脑上的 TVBox、FongMi 播放器。片源由你自己添加。</p>
             </div>
             {FOOTER_COLUMNS.map((column) => (
               <div className="span-3 footer__col" key={column.title}>
@@ -35,10 +35,9 @@ export default function Footer() {
           </div>
           <div className="footer__legal">
             <span>© 2026 QuickBo contributors</span>
-            <a href={LICENSE}>MIT</a>
-            <a href={MYGO}>mygo</a>
+            <a href={LICENSE}>使用许可</a>
             <div className="socials">
-              <a href="https://github.com/harrylyx/QuickBo" aria-label="GitHub 上的源代码"><GithubMark size={16} /></a>
+              <a href="https://github.com/harrylyx/QuickBo" aria-label="QuickBo 的 GitHub"><GithubMark size={16} /></a>
             </div>
           </div>
         </div>

@@ -64,7 +64,7 @@ export default function DemoHome() {
 
   return (
     <div className="qb-panel">
-      <div className="qb-greet"><h3>{greet}</h3><p>{today} · 已启用 2 份订阅</p></div>
+      <div className="qb-greet"><h3>{greet}</h3><p>{today} · 已打开 2 份订阅</p></div>
       {!query && (
         <div className="qb-banner-wrap">
           <div className="qb-banner" role="img" aria-label="雾港来信，电影 HD">

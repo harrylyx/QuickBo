@@ -15,12 +15,16 @@ func (a *App) viewHome(c *ui.Context, th *ui.Theme) {
 	if searching {
 		lanes = a.homeHits
 	}
+	gap := float32(32)
+	if searching {
+		gap = 18
+	}
 	ui.Scroll(c).Grow(1).TrackScroll(&a.browseScroll).Children(func() {
-		ui.Column(c).Padding(20, pagePad, 28, pagePad).Gap(32).Children(func() {
+		ui.Column(c).Padding(20, pagePad, 28, pagePad).Gap(gap).Children(func() {
 			if !searching {
 				a.homeHero(c, th)
+				a.viewContinue(c, th)
 			}
-			a.viewContinue(c, th)
 			if a.homeSearching && len(lanes) == 0 {
 				a.loadingRow(c, th, "正在搜索全部片源…")
 				return

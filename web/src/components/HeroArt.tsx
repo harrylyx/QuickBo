@@ -29,7 +29,7 @@ export default function HeroArt() {
     <div
       className="hero__art span-6 start-7"
       role="img"
-      aria-label="QuickBo 的窗口：侧栏是订阅与资料库，首页是通栏横幅和两排海报"
+      aria-label="QuickBo 的窗口：TVBox 订阅的首页和海报"
     >
       <div className="ly-piece ly-piece--main qb-hero-win" aria-hidden="true">
         <div className="qb-hero-win__bar">
@@ -42,7 +42,7 @@ export default function HeroArt() {
             <b>订阅</b><span>家庭片库</span><span>晚间直播</span>
           </div>
           <div className="qb-hero-win__main">
-            <div className="qb-hero-win__head"><b>晚上好</b><span>搜索全部片源</span></div>
+            <div className="qb-hero-win__head"><b>晚上好</b><span>搜索影片</span></div>
             <div className="qb-hero-win__banner"><b>雾港来信</b><span>电影 · HD</span></div>
             <div className="qb-hero-win__label"><span>继续观看</span><span>电影</span></div>
             <PosterRow />
@@ -52,7 +52,7 @@ export default function HeroArt() {
         </div>
       </div>
       <div className="ly-piece ly-piece--note qb-hero-note" aria-hidden="true" data-ly-steps="700">
-        <div className="qb-hero-note__head"><b>线路体检</b><span className="qb-chip" data-step data-step-at="3">3 条已测</span></div>
+        <div className="qb-hero-note__head"><b>播放线路</b><span className="qb-chip" data-step data-step-at="3">3 条线路</span></div>
         <div className="qb-hero-note__line" data-step><i className="ok">✓</i><span>家庭片库 · 线路 1</span><b>可播放</b></div>
         <div className="qb-hero-note__line" data-step><i className="ok">✓</i><span>晚间直播 · 线路 2</span><b>可播放</b></div>
         <div className="qb-hero-note__line" data-step><i className="bad">!</i><span>备用源 · 线路 3</span><b>无法播放</b></div>

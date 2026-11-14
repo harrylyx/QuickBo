@@ -1,4 +1,4 @@
-import { CONFIG_CODE, SOURCE_FACTS } from '../data/sources';
+import { SOURCE_FACTS } from '../data/sources';
 
 export default function Sources() {
   return (
@@ -6,9 +6,9 @@ export default function Sources() {
       <div className="wrap">
         <div className="grid grid--top qb-sources-grid">
           <div className="span-5">
-            <h2 id="sources-h">片源来自订阅文件</h2>
+            <h2 id="sources-h">贴上 TVBox 或 FongMi 订阅</h2>
             <p className="t-lead qb-sources-lead">
-              程序不内置片源、订阅地址或解析接口。贴一份配置网址，或打开本地 JSON，首页才有内容。删掉配置目录里的 settings.json，就回到空壳。
+              把 TVBox、FongMi 的订阅地址贴进来，或打开电脑里的文件。首页会出现海报。
             </p>
             <div className="qb-facts">
               {SOURCE_FACTS.map((fact) => (
@@ -17,12 +17,23 @@ export default function Sources() {
                 </div>
               ))}
             </div>
-            <p className="t-small muted qb-sources-formats">订阅可以是纯 JSON、宽松 JSON、Base64 或 gzip。</p>
+            <p className="t-small muted qb-sources-formats">TVBox 和 FongMi 的订阅地址、本地文件都能打开。</p>
           </div>
           <div className="span-6 start-7">
-            <div className="qb-code" role="img" aria-label="一份订阅 JSON：sites 数组里有一个 type 1 的 MacCMS 片源">
-              <div className="qb-code__bar" aria-hidden="true"><i /><i /><i /></div>
-              <pre><code>{CONFIG_CODE}</code></pre>
+            <div className="qb-code qb-add" role="img" aria-label="添加 TVBox 或 FongMi 订阅：贴上地址，或打开电脑里的文件">
+              <div className="qb-code__bar" aria-hidden="true"><i /><i /><i /><span>添加订阅</span></div>
+              <div className="qb-add__body">
+                <p className="qb-add__label">订阅地址</p>
+                <div className="qb-add__field">把地址贴在这里</div>
+                <div className="qb-add__actions">
+                  <span className="qb-add__btn">添加</span>
+                  <span>或打开本地文件</span>
+                </div>
+                <div className="qb-add__list">
+                  <div><b>家庭片库</b><span>12 个片源 · 已打开</span></div>
+                  <div><b>晚间直播</b><span>直播列表 · 已打开</span></div>
+                </div>
+              </div>
             </div>
           </div>
         </div>

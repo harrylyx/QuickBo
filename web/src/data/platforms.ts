@@ -9,23 +9,23 @@ export interface Platform {
 export const PLATFORMS: Platform[] = [
   {
     id: 'macos',
-    name: 'macOS',
-    files: ['quickbo-<版本>-arm64.dmg', 'quickbo-<版本>-amd64.dmg'],
+    name: 'Mac',
+    files: ['Apple 芯片', 'Intel 芯片'],
     requirement: 'macOS 12 及以上',
-    player: '播放前先 brew install mpv。Apple 芯片用 arm64，Intel 用 amd64。',
+    player: '两个芯片各有一个安装包。第一次播放前，请先安装 mpv，这是用来播放的组件。',
   },
   {
     id: 'windows',
     name: 'Windows',
-    files: ['quickbo-setup-<版本>-amd64.exe', 'quickbo-setup-<版本>-arm64.exe'],
+    files: ['64 位', 'ARM'],
     requirement: 'Windows 10 及以上',
-    player: '安装包自带对应架构的 libmpv-2.dll，装好就能在窗口里放。',
+    player: '装好就能看，不用再装别的。',
   },
   {
     id: 'linux',
     name: 'Linux',
-    files: ['quickbo_<版本>_amd64.deb', 'quickbo_<版本>_arm64.deb'],
-    requirement: '需要 GTK 3',
-    player: '.deb 会依赖 libmpv2；.tar.gz 里有 install.sh，需要自己 sudo apt install libmpv2。',
+    files: ['64 位', 'ARM'],
+    requirement: '常见的桌面系统',
+    player: '用安装包装好后就能看。',
   },
 ];

@@ -1,48 +1,44 @@
 export const REPO = 'https://github.com/harrylyx/QuickBo';
 export const RELEASES = `${REPO}/releases`;
 export const LICENSE = `${REPO}/blob/master/LICENSE`;
-export const MYGO = 'https://github.com/egoist/mygo';
-
 export const MAIN_ACTION = '下载 QuickBo';
-export const SOURCE_ACTION = '查看源代码';
 
 export const NAV_LINKS = [
-  { label: '窗口', href: '#window' },
+  { label: '界面', href: '#window' },
   { label: '功能', href: '#features' },
-  { label: '片源', href: '#sources' },
+  { label: '订阅', href: '#sources' },
   { label: '下载', href: '#install' },
 ] as const;
 
 export const MENU_LINKS = [
-  { label: '多份订阅', href: '#features', note: '启用、停用、批量管理' },
-  { label: '全源搜索', href: '#features', note: '同名结果并成一条' },
-  { label: '窗口播放', href: '#features', note: 'libmpv 在应用窗口内' },
-  { label: '订阅格式', href: '#sources', note: 'JSON、Base64、gzip' },
+  { label: '多份订阅', href: '#features', note: '合成一个首页' },
+  { label: '搜索', href: '#features', note: '一次找完全部片子' },
+  { label: '播放', href: '#features', note: '全屏、小窗和字幕' },
+  { label: '添加订阅', href: '#sources', note: 'TVBox 或 FongMi 地址' },
 ] as const;
 
 export const FOOTER_COLUMNS = [
   {
     title: '产品',
     links: [
-      { label: '窗口', href: '#window' },
+      { label: '界面', href: '#window' },
       { label: '功能', href: '#features' },
-      { label: '片源', href: '#sources' },
+      { label: '订阅', href: '#sources' },
     ],
   },
   {
-    title: '安装',
+    title: '下载',
     links: [
-      { label: '下载', href: '#install' },
-      { label: 'Releases', href: RELEASES },
-      { label: '构建说明', href: `${REPO}#开发者构建` },
+      { label: '安装包', href: '#install' },
+      { label: '全部版本', href: RELEASES },
     ],
   },
   {
-    title: '项目',
+    title: '关于',
     links: [
       { label: '源代码', href: REPO },
-      { label: '许可', href: LICENSE },
-      { label: 'mygo', href: MYGO },
+      { label: '使用许可', href: LICENSE },
+      { label: '反馈问题', href: `${REPO}/issues` },
     ],
   },
 ] as const;

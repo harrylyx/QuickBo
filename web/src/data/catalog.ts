@@ -37,7 +37,7 @@ export const LIVE_GROUPS = [
 ] as const;
 
 export const SUBSCRIPTIONS = [
-  { name: '家庭片库', meta: 'JSON · 12 个源', on: true },
-  { name: '晚间直播', meta: 'TXT · #genre#', on: true },
+  { name: '家庭片库', meta: '12 个片源', on: true },
+  { name: '晚间直播', meta: '直播列表', on: true },
   { name: '备用源', meta: '已停用', on: false },
 ] as const;

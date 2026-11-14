@@ -10,26 +10,26 @@ export interface Feature {
 export const FEATURES: Feature[] = [
   {
     id: 'merge',
-    title: '合并多份订阅',
-    body: '同时启用几份 TVBox / FongMi 订阅，或打开本地 JSON。各份里的片源汇到同一面海报墙，同一部片跨源并成一张。',
+    title: '几份订阅，一个首页',
+    body: '同时加上几份 TVBox、FongMi 订阅，海报汇到同一面墙。同一部片子只留一张，不用来回翻。',
     visual: 'subs',
   },
   {
     id: 'search',
-    title: '一次搜完全部片源',
-    body: '首页顶上的搜索会走所有已启用的源，同名结果并成一条。搜完可以直接进详情页选线路。',
+    title: '搜一次就够',
+    body: '在首页搜，已经打开的片源都会找一遍。同名结果合成一条，点进去就能选线路。',
     visual: 'search',
   },
   {
     id: 'lines',
-    title: '列出可播放的线路',
-    body: '详情页把每个源的线路摆在一起。体检不通的线路会标出来，不用点进去才发现播不了。',
+    title: '播不了就换一条',
+    body: '同一部片子的线路摆在一起。不能播的会标出来，不用点进去才发现。',
     visual: 'lines',
   },
   {
     id: 'play',
-    title: '在窗口里播放',
-    body: 'libmpv 把画面铺在应用窗口内。全屏、悬浮小窗、字幕和音轨都在；倍速 0.5× 到 3×，按住空格临时 2 倍。',
+    title: '就在这个窗口里看',
+    body: '全屏、小窗、字幕和音轨都有。可以倍速，按住空格会临时加速，下次从上次的进度继续。',
     visual: 'transport',
   },
 ];

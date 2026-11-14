@@ -22,7 +22,7 @@ function SearchVisual() {
       <div className="qb-frag__query">雾港<span className="qb-caret" /></div>
       <div className="qb-frag__hit"><b>雾港来信</b><span>2 个源</span></div>
       <div className="qb-frag__hit"><b>雾港夜航</b><span>1 个源</span></div>
-      <div className="qb-frag__foot">搜索已启用订阅里的全部片源</div>
+      <div className="qb-frag__foot">在已打开的订阅里搜索</div>
     </div>
   );
 }
@@ -43,7 +43,7 @@ function LinesVisual() {
 function TransportVisual() {
   return (
     <div className="qb-frag qb-frag--transport" aria-hidden="true">
-      <div className="qb-frag__head"><span>窗口内播放</span><span>libmpv</span></div>
+      <div className="qb-frag__head"><span>正在播放</span><span>倍速</span></div>
       <div className="qb-frag__bar"><span className="qb-frag__disc"><i /></span><b>18:54</b><span className="qb-frag__track"><i /></span><b>45:00</b><em>1×</em></div>
       <div className="qb-frag__chips"><span>片头 01:24 已记住</span><span>悬浮小窗</span><span>字幕</span><span>截图</span></div>
     </div>

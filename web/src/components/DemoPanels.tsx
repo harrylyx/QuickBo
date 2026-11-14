@@ -26,7 +26,7 @@ export default function DemoPanels() {
   if (view === 'cats') {
     return (
       <div className="qb-panel">
-        <PanelHead title="分类" note="电影、电视剧按你设的规则汇总。" />
+        <PanelHead title="分类" note="电影、电视剧按你的分类排好。" />
         <div className="qb-poster-grid">{titles.map((item) => <Poster item={item} key={item.id} />)}</div>
       </div>
     );
@@ -35,14 +35,14 @@ export default function DemoPanels() {
   if (view === 'live') {
     return (
       <div className="qb-panel">
-        <PanelHead title="直播" note="M3U，或带 #genre# 的「名称,地址」文本。" />
+        <PanelHead title="直播" note="导入直播列表，点一个频道就开始看。" />
         {LIVE_GROUPS.map((group) => (
           <div className="qb-live-group" key={group.genre}>
             <p className="qb-side-label">{group.genre}</p>
             {group.channels.map((channel) => (
               <button type="button" className="qb-list-row" key={channel} onClick={() => playLive(channel)}>
                 <span className="qb-live-dot" aria-hidden="true" />
-                <span className="qb-list-meta"><b>{channel}</b><small>晚间直播 · M3U</small></span>
+                <span className="qb-list-meta"><b>{channel}</b><small>晚间直播</small></span>
               </button>
             ))}
           </div>
@@ -57,7 +57,7 @@ export default function DemoPanels() {
       <div className="qb-panel">
         <PanelHead
           title={view === 'history' ? '历史' : '收藏'}
-          note={view === 'history' ? '断点记在本机。' : '只存在这台电脑上。'}
+          note={view === 'history' ? '下次打开，从上次停下的地方继续。' : '只存在这台电脑上。'}
         />
         <div className="qb-list">
           {rows.length ? rows.map((item) => <ListRow item={item} key={item.id} />) : <p className="qb-empty">这里还是空的。</p>}
@@ -69,7 +69,7 @@ export default function DemoPanels() {
   if (view === 'manage') {
     return (
       <div className="qb-panel">
-        <PanelHead title="管理" note="订阅可以启用、停用。片源能测速，也能进黑名单。" />
+        <PanelHead title="管理" note="订阅可以随时打开或关掉。不好用的片源可以先停掉。" />
         <div className="qb-list">
           {SUBSCRIPTIONS.map((sub, index) => (
             <button
@@ -92,7 +92,7 @@ export default function DemoPanels() {
   return (
     <div className="qb-panel qb-settings">
       <PanelHead title="设置" note="外观和这个页面用同一套颜色。" />
-      <p>选一项，窗口和网页一起变。偏好写在本机的 settings.json。</p>
+      <p>选一种外观，这个窗口和网页会一起变。你的选择只留在这台电脑上。</p>
       <ThemeControl />
     </div>
   );
