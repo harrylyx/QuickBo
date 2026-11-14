@@ -86,6 +86,18 @@ func tallyRules(ballots []ballot, rules []homeRule) ([]homeLane, map[string][]ti
 		rules = defaultHomeRules()
 	}
 	ballots = expandBallots(ballots, rules)
+	// One pass groups the votes by row. Scanning the whole ballot list once
+	// per rule turns a big subscription into rules x ballots work on the UI
+	// thread, which is what froze the window on 10k-site configs.
+	byBucket := make(map[string][]ballot, len(rules)+1)
+	for _, b := range ballots {
+		if b.Bucket != "" {
+			byBucket[b.Bucket] = append(byBucket[b.Bucket], b)
+		}
+	}
+	// Titles repeat across rows; normalising each one once instead of once
+	// per row keeps the unicode/string work proportional to unique titles.
+	norms := map[string]string{}
 	lanes := make([]homeLane, 0, len(rules))
 	lookup := map[string][]titleHit{}
 	for _, rule := range rules {
@@ -95,9 +107,12 @@ func tallyRules(ballots []ballot, rules []homeRule) ([]homeLane, map[string][]ti
 		var lane homeLane
 		var part map[string][]titleHit
 		if rule.ID == latestRuleID {
-			lane, part = rankedLane(rule.ID, rule.Name, filterBucket(ballots, hotLaneID, rule.ID))
+			votes := make([]ballot, 0, len(byBucket[hotLaneID])+len(byBucket[rule.ID]))
+			votes = append(votes, byBucket[hotLaneID]...)
+			votes = append(votes, byBucket[rule.ID]...)
+			lane, part = rankedLaneCached(rule.ID, rule.Name, votes, norms)
 		} else {
-			lane, part = votedLane(rule.ID, rule.Name, filterBucket(ballots, rule.ID))
+			lane, part = votedLaneCached(rule.ID, rule.Name, byBucket[rule.ID], norms)
 		}
 		if len(lane.Items) == 0 {
 			continue
@@ -110,31 +125,25 @@ func tallyRules(ballots []ballot, rules []homeRule) ([]homeLane, map[string][]ti
 
 // expandBallots applies the current keywords to ballots that remember the
 // source category. Ballots that already carry a bucket are left as they are.
+// Category names repeat across thousands of sources, so their row matches are
+// memoised for the duration of one tally.
 func expandBallots(ballots []ballot, rules []homeRule) []ballot {
 	out := make([]ballot, 0, len(ballots))
+	matched := map[string][]string{}
 	for _, b := range ballots {
 		if strings.TrimSpace(b.Cat) == "" {
 			out = append(out, b)
 			continue
 		}
-		for _, id := range matchRules(b.Cat, rules) {
+		ids, ok := matched[b.Cat]
+		if !ok {
+			ids = matchRules(b.Cat, rules)
+			matched[b.Cat] = ids
+		}
+		for _, id := range ids {
 			next := b
 			next.Bucket = id
 			out = append(out, next)
-		}
-	}
-	return out
-}
-
-// filterBucket keeps the ballots cast in any of buckets.
-func filterBucket(ballots []ballot, buckets ...string) []ballot {
-	out := make([]ballot, 0, len(ballots))
-	for _, b := range ballots {
-		for _, bucket := range buckets {
-			if b.Bucket == bucket {
-				out = append(out, b)
-				break
-			}
 		}
 	}
 	return out
@@ -150,13 +159,26 @@ type laneCandidate struct {
 }
 
 func groupBallots(ballots []ballot) ([]string, map[string]*laneCandidate) {
+	return groupBallotsCached(ballots, map[string]string{})
+}
+
+// groupBallotsCached shares the title -> vote key memo across the rows of one
+// tally, so the same title is only normalised once per collection pass.
+func groupBallotsCached(ballots []ballot, norms map[string]string) ([]string, map[string]*laneCandidate) {
+	if norms == nil {
+		norms = map[string]string{}
+	}
 	by := map[string]*laneCandidate{}
 	var keys []string
 	for _, b := range ballots {
 		if !usableTitle(b.Item.Title) {
 			continue
 		}
-		id := normTitle(b.Item.Title)
+		id, ok := norms[b.Item.Title]
+		if !ok {
+			id = normTitle(b.Item.Title)
+			norms[b.Item.Title] = id
+		}
 		if id == "" || b.SiteKey == "" {
 			continue
 		}
@@ -259,7 +281,11 @@ func buildLane(key, name string, keys []string, by map[string]*laneCandidate) (h
 }
 
 func votedLane(key, name string, ballots []ballot) (homeLane, map[string][]titleHit) {
-	keys, by := groupBallots(ballots)
+	return votedLaneCached(key, name, ballots, nil)
+}
+
+func votedLaneCached(key, name string, ballots []ballot, norms map[string]string) (homeLane, map[string][]titleHit) {
+	keys, by := groupBallotsCached(ballots, norms)
 	sort.SliceStable(keys, func(i, j int) bool {
 		ai, aj := by[keys[i]], by[keys[j]]
 		// 有封面的优先显示
@@ -281,7 +307,11 @@ func votedLane(key, name string, ballots []ballot) (homeLane, map[string][]title
 // listed by more sources come first (mirrors share one voter), then
 // sharpness, recency and title provide deterministic tie-breakers.
 func rankedLane(key, name string, ballots []ballot) (homeLane, map[string][]titleHit) {
-	keys, by := groupBallots(ballots)
+	return rankedLaneCached(key, name, ballots, nil)
+}
+
+func rankedLaneCached(key, name string, ballots []ballot, norms map[string]string) (homeLane, map[string][]titleHit) {
+	keys, by := groupBallotsCached(ballots, norms)
 	sort.SliceStable(keys, func(i, j int) bool {
 		ai, aj := by[keys[i]], by[keys[j]]
 		// 有封面的优先显示
@@ -440,24 +470,117 @@ func (a *App) delayOf(key string) int {
 	return st.Delay
 }
 
+// ballotUpdate is one source's fresh votes from a collection pass.
+type ballotUpdate struct {
+	siteKey string
+	fresh   []ballot
+}
+
 func (a *App) mergeBallots(siteKey string, fresh []ballot) {
-	kept := make([]ballot, 0, len(a.ballots)+len(fresh))
+	a.mergeBallotUpdates([]ballotUpdate{{siteKey: siteKey, fresh: fresh}})
+}
+
+// mergeBallotUpdates replaces many sources' votes in one pass and tallies the
+// home once. Publishing one source at a time made both the slice copy and the
+// tally quadratic in the number of sites.
+func (a *App) mergeBallotUpdates(updates []ballotUpdate) {
+	if a.applyBallotUpdates(updates) {
+		a.rebuildHome()
+	}
+}
+
+// mergeBallotUpdatesDeferred is the collection path: the tally runs off the
+// UI thread so a big batch cannot stall a frame.
+func (a *App) mergeBallotUpdatesDeferred(updates []ballotUpdate) {
+	if a.applyBallotUpdates(updates) {
+		a.scheduleHome()
+	}
+}
+
+func (a *App) applyBallotUpdates(updates []ballotUpdate) bool {
+	if len(updates) == 0 {
+		return false
+	}
+	drop := make(map[string]bool, len(updates))
+	fresh := 0
+	for _, u := range updates {
+		drop[u.siteKey] = true
+		fresh += len(u.fresh)
+	}
+	kept := make([]ballot, 0, len(a.ballots)+fresh)
 	for _, b := range a.ballots {
-		if b.SiteKey != siteKey {
+		if !drop[b.SiteKey] {
 			kept = append(kept, b)
 		}
 	}
-	a.ballots = append(kept, fresh...)
-	a.rebuildHome()
+	for _, u := range updates {
+		kept = append(kept, u.fresh...)
+	}
+	a.ballots = trimBallots(kept)
+	return true
+}
+
+// trimBallots bounds the facts that feed the home rows. Every source still
+// stays in the sidebar, the source manager and search; only the aggregated
+// ranking samples at most homeSourceLimit of them, so a subscription with
+// 10k sites cannot make one frame walk millions of votes.
+func trimBallots(in []ballot) []ballot {
+	if len(in) == 0 {
+		return in
+	}
+	// Filter in place: the caller just built this slice, and a large batch
+	// would otherwise be copied once more on every flush.
+	out := in[:0]
+	sites := map[string]bool{}
+	for _, b := range in {
+		if len(out) >= homeBallotLimit {
+			break
+		}
+		if !sites[b.SiteKey] {
+			if len(sites) >= homeSourceLimit {
+				continue
+			}
+			sites[b.SiteKey] = true
+		}
+		out = append(out, b)
+	}
+	return out
 }
 
 func (a *App) rebuildHome() {
+	a.homeGen++
 	lanes, lookup := tallyRules(a.ballots, a.activeRules())
 	a.home = lanes
 	if a.lookup == nil {
 		a.lookup = map[string][]titleHit{}
 	}
 	a.lookup = lookup
+}
+
+// scheduleHome tallies the home off the UI thread during a collection pass.
+// A batch can hold tens of thousands of votes, and those tens of milliseconds
+// used to land on every frame while thousands of sites were still probing.
+// Headless tests keep the synchronous path so assertions after a load see the
+// finished rows.
+func (a *App) scheduleHome() {
+	if a.win == nil && !a.asyncHomeTally {
+		a.rebuildHome()
+		return
+	}
+	a.homeGen++
+	gen := a.homeGen
+	ballots := append([]ballot(nil), a.ballots...)
+	rules := cloneRules(a.activeRules())
+	go func() {
+		lanes, lookup := tallyRules(ballots, rules)
+		a.post(func() {
+			if a.homeGen != gen {
+				return
+			}
+			a.home = lanes
+			a.lookup = lookup
+		})
+	}()
 }
 
 func (a *App) openTitle(key string) {

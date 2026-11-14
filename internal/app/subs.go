@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -538,17 +539,17 @@ func sideGroupTitle(g sideGroup) string {
 	return fmt.Sprintf("%s  %d", name, len(g.sites)+len(g.lives))
 }
 
-// groupHasSelection reports whether the sidebar selection is in g.
+// groupHasSelection reports whether the sidebar selection is in g. Matching
+// the id shape instead of walking every site keeps one frame O(1) even when
+// a subscription brings thousands of sources.
 func (a *App) groupHasSelection(g sideGroup) bool {
-	for _, s := range g.sites {
-		if a.sideSel == "site:"+s.Meta().Key {
-			return true
-		}
+	switch {
+	case strings.HasPrefix(a.sideSel, "site:"):
+		return len(g.sites) > 0
+	case strings.HasPrefix(a.sideSel, "live:"):
+		n, err := strconv.Atoi(strings.TrimPrefix(a.sideSel, "live:"))
+		return err == nil && n >= 0 && n < len(g.lives)
+	default:
+		return false
 	}
-	for _, li := range g.lives {
-		if a.sideSel == fmt.Sprintf("live:%d", li.idx) {
-			return true
-		}
-	}
-	return false
 }

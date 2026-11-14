@@ -25,23 +25,51 @@ type aggEntry struct {
 	Sources int
 }
 
+// catFactUpdate is one source's usable categories from a collection pass.
+type catFactUpdate struct {
+	siteKey  string
+	siteName string
+	cats     []model.Category
+}
+
 // replaceCatFacts stores the usable category names of one source, replacing
 // whatever that source contributed before.
 func (a *App) replaceCatFacts(siteKey, siteName string, cats []model.Category) {
-	out := make([]catFact, 0, len(a.catFacts)+len(cats))
+	a.applyCatFactUpdates([]catFactUpdate{{siteKey: siteKey, siteName: siteName, cats: cats}})
+}
+
+// applyCatFactUpdates replaces many sources' facts in one pass. Doing this
+// once per source copied the whole list every time and made a 10k-site load
+// quadratic on the UI thread.
+func (a *App) applyCatFactUpdates(updates []catFactUpdate) {
+	if len(updates) == 0 {
+		return
+	}
+	drop := make(map[string]bool, len(updates))
+	for _, u := range updates {
+		drop[u.siteKey] = true
+	}
+	out := make([]catFact, 0, len(a.catFacts)+len(updates)*8)
 	for _, f := range a.catFacts {
-		if f.SiteKey != siteKey {
+		if !drop[f.SiteKey] {
 			out = append(out, f)
 		}
 	}
-	seen := map[string]bool{}
-	for _, cat := range cats {
-		name := strings.TrimSpace(cat.Name)
-		if name == "" || seen[name] || !usableTitle(name) {
-			continue
+	for _, u := range updates {
+		seen := map[string]bool{}
+		for _, cat := range u.cats {
+			name := strings.TrimSpace(cat.Name)
+			if name == "" || seen[name] || !usableTitle(name) {
+				continue
+			}
+			seen[name] = true
+			out = append(out, catFact{SiteKey: u.siteKey, SiteName: u.siteName, Name: name, ID: cat.ID})
 		}
-		seen[name] = true
-		out = append(out, catFact{SiteKey: siteKey, SiteName: siteName, Name: name, ID: cat.ID})
+	}
+	// The category directory does not need one fact per site in a huge
+	// subscription; keep the frame's work bounded.
+	if len(out) > homeFactLimit {
+		out = out[:homeFactLimit]
 	}
 	a.catFacts = out
 }

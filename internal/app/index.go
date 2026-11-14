@@ -25,12 +25,24 @@ const (
 	indexProbeCats     = 5
 	cacheCatLimit      = 16
 	cacheItemLimit     = 16
+
+	// A warehouse subscription can hold 10k+ sites. Collecting every
+	// category and re-tallying the home after each probe made the UI thread
+	// quadratic and froze the window. Home rows show 18 titles ranked from a
+	// few hundred sources; all sites remain in the sidebar, search and the
+	// source manager.
+	homeSourceLimit   = 300
+	homeBallotLimit   = 60000
+	homeFactLimit     = 20000
+	collectFlushEvery = 250 * time.Millisecond
 )
 
 func (a *App) beginLoad() (context.Context, int) {
 	if a.loadCancel != nil {
 		a.loadCancel()
 	}
+	// Drop any home tally still running for the previous load.
+	a.homeGen++
 	ctx, cancel := context.WithCancel(context.Background())
 	a.loadCtx = ctx
 	a.loadCancel = cancel
@@ -172,6 +184,8 @@ func (a *App) keepWorking(ctx context.Context, full *source.Catalog) {
 // from cache stays on screen and no loading state is shown: each source's
 // fresh ballots replace its cached ones as they arrive.
 func (a *App) keepWorkingMode(ctx context.Context, full *source.Catalog, silent bool) {
+	// A recollect without subscriptions does not pass through beginLoad.
+	a.homeGen++
 	sites := append([]source.Source(nil), full.Sites...)
 	lives := append([]*source.LiveEntry(nil), full.Lives...)
 	total := len(sites) + len(lives)
@@ -203,12 +217,16 @@ func (a *App) keepWorkingMode(ctx context.Context, full *source.Catalog, silent 
 	seedSite := make([]bool, len(sites))
 	seedLive := make([]bool, len(lives))
 	if silent && a.catalog != nil {
+		siteKept := make(map[string]bool, len(a.catalog.Sites))
+		for _, s := range a.catalog.Sites {
+			siteKept[s.Meta().Key] = true
+		}
 		liveKept := map[string]bool{}
 		for _, lv := range a.catalog.Lives {
 			liveKept[lv.URL] = true
 		}
 		for i, s := range sites {
-			seedSite[i] = a.catalog.Find(s.Meta().Key) != nil
+			seedSite[i] = siteKept[s.Meta().Key]
 		}
 		for i, lv := range lives {
 			seedLive[i] = liveKept[lv.URL]
@@ -217,61 +235,112 @@ func (a *App) keepWorkingMode(ctx context.Context, full *source.Catalog, silent 
 	go func() {
 		okSite := append([]bool(nil), seedSite...)
 		okLive := append([]bool(nil), seedLive...)
-		var mu sync.Mutex
+		var stateMu sync.Mutex
 		var cacheMu sync.Mutex
 		var cacheSites []cacheSite
 		var cacheLives []string
 		var checked atomic.Int32
-		publish := func() {
-			mu.Lock()
-			type kept struct {
-				src source.Source
+		var collected atomic.Int32
+		// Results are queued and published in time-based batches: one post
+		// and one home tally per flush rather than one per source. A 10k-site
+		// subscription otherwise does quadratic work on the UI thread.
+		var batchMu sync.Mutex
+		var pendingBallots []ballotUpdate
+		var pendingCats []catFactUpdate
+		pendingPublish := false
+		// Window.Update queues its callbacks; a late tick must not put the
+		// progress text back after the final flush has ended the load.
+		var finished atomic.Bool
+		markPublish := func() {
+			batchMu.Lock()
+			pendingPublish = true
+			batchMu.Unlock()
+		}
+		flush := func(final bool) {
+			if final {
+				finished.Store(true)
 			}
-			got := make([]kept, 0, len(sites))
-			for i, s := range sites {
-				if okSite[i] {
-					got = append(got, kept{src: s})
-				}
-			}
-			liveSnap := make([]*source.LiveEntry, 0, len(lives))
-			for i, lv := range lives {
-				if okLive[i] {
-					liveSnap = append(liveSnap, lv)
-				}
-			}
+			stateMu.Lock()
+			siteOK := append([]bool(nil), okSite...)
+			liveOK := append([]bool(nil), okLive...)
 			n := int(checked.Load())
-			mu.Unlock()
+			stateMu.Unlock()
 			a.post(func() {
 				if ctx.Err() != nil {
 					return
 				}
-				siteSnap := make([]source.Source, 0, len(got))
-				for _, g := range got {
-					if a.hidden[sourceHideID(g.src)] || a.disabled[sourceHideID(g.src)] || a.blacklisted(g.src.Meta().Name) {
-						continue
+				// Drain on the UI thread: a queued tick and the final flush
+				// may run out of order, and no batch may be lost or applied
+				// twice.
+				batchMu.Lock()
+				ballots := pendingBallots
+				cats := pendingCats
+				publish := pendingPublish
+				pendingBallots, pendingCats, pendingPublish = nil, nil, false
+				batchMu.Unlock()
+				if (publish || final) && (final || !finished.Load()) {
+					siteSnap := make([]source.Source, 0, len(sites))
+					for i, s := range sites {
+						if !siteOK[i] {
+							continue
+						}
+						if a.hidden[sourceHideID(s)] || a.disabled[sourceHideID(s)] || a.blacklisted(s.Meta().Name) {
+							continue
+						}
+						siteSnap = append(siteSnap, s)
 					}
-					siteSnap = append(siteSnap, g.src)
-				}
-				shownLive := liveSnap[:0]
-				for _, lv := range liveSnap {
-					if !a.hidden[liveHideID(lv.URL)] && !a.blacklisted(lv.Name) {
-						shownLive = append(shownLive, lv)
+					shownLive := make([]*source.LiveEntry, 0, len(lives))
+					for i, lv := range lives {
+						if !liveOK[i] {
+							continue
+						}
+						if !a.hidden[liveHideID(lv.URL)] && !a.blacklisted(lv.Name) {
+							shownLive = append(shownLive, lv)
+						}
 					}
+					// Show home as sources come in, but only from screens
+					// that are waiting for them.
+					if a.homeAwaitsSources() {
+						a.screen = screenHome
+						a.sideSel = "home"
+						a.lastSide = "home"
+					}
+					a.catalog.Sites = siteSnap
+					a.catalog.Lives = shownLive
+					a.loadNote = fmt.Sprintf("正在检查源 %d/%d，可用 %d", n, total, len(siteSnap)+len(shownLive))
 				}
-				// Show home as sources come in, but only from screens that
-				// are waiting for them: opening a title (or anything else)
-				// during the load keeps sideSel at "home", and must not be
-				// undone by the next probe result.
-				if a.homeAwaitsSources() {
-					a.screen = screenHome
-					a.sideSel = "home"
-					a.lastSide = "home"
+				if len(cats) > 0 {
+					a.applyCatFactUpdates(cats)
 				}
-				a.catalog.Sites = siteSnap
-				a.catalog.Lives = shownLive
-				a.loadNote = fmt.Sprintf("正在检查源 %d/%d，可用 %d", n, total, len(siteSnap)+len(shownLive))
+				if len(ballots) > 0 {
+					a.mergeBallotUpdatesDeferred(ballots)
+				}
+				if final {
+					a.loading = false
+					a.loadNote = ""
+					if len(a.catalog.Sites) == 0 && len(a.catalog.Lives) == 0 {
+						a.loadErr = "配置都打开了，但没有能列出内容的源"
+						a.screen = screenEmpty
+					}
+					a.doneLoad()
+				}
 			})
 		}
+		stop := make(chan struct{})
+		tickDone := make(chan struct{})
+		go func() {
+			defer close(tickDone)
+			t := time.NewTicker(collectFlushEvery)
+			defer t.Stop()
+			for {
+				select {
+				case <-t.C:
+					flush(false)
+				case <-stop:
+					return
+				}
+			}
+		}()
 		dead := a.loadDead()
 		sem := make(chan struct{}, indexProbeParallel)
 		var wg sync.WaitGroup
@@ -293,17 +362,24 @@ func (a *App) keepWorkingMode(ctx context.Context, full *source.Catalog, silent 
 				page, ok := a.sample(cctx, s)
 				cancel()
 				checked.Add(1)
+				markPublish()
 				if ok {
-					mu.Lock()
+					stateMu.Lock()
 					okSite[i] = true
-					mu.Unlock()
-					publish()
+					stateMu.Unlock()
 					m := s.Meta()
 					voter := voterFor(m)
 					hot := hotCandidates(page.Items)
+					// Only the first homeSourceLimit sites need a full
+					// category scan. The rest stay in the sidebar, search
+					// and source manager but do not feed the home rows.
+					limited := false
+					if a.probeSite == nil {
+						limited = collected.Add(1) > homeSourceLimit
+					}
 					var cats []cacheCat
 					var names []model.Category
-					if a.probeSite == nil {
+					if !limited && a.probeSite == nil {
 						bctx, bcancel := context.WithTimeout(ctx, 20*time.Second)
 						cats, names = collectSourceWith(bctx, s, rules)
 						bcancel()
@@ -312,53 +388,49 @@ func (a *App) keepWorkingMode(ctx context.Context, full *source.Catalog, silent 
 						}
 					}
 					if len(names) > 0 {
-						names := append([]model.Category(nil), names...)
-						key, siteName := m.Key, m.Name
-						a.post(func() {
-							if ctx.Err() != nil {
-								return
-							}
-							a.replaceCatFacts(key, siteName, names)
+						batchMu.Lock()
+						pendingCats = append(pendingCats, catFactUpdate{
+							siteKey: m.Key, siteName: m.Name,
+							cats: append([]model.Category(nil), names...),
 						})
+						batchMu.Unlock()
 					}
 					if len(hot) > 0 || len(cats) > 0 || len(names) > 0 {
+						// A site beyond the home limit is still cached by
+						// key so restoring the cache keeps it in the sidebar.
+						cs := cacheSite{Key: m.Key, Name: m.Name, Voter: voter}
+						if !limited {
+							cs.Hot, cs.Cats, cs.Names = hot, cats, cacheNames(names)
+						}
 						cacheMu.Lock()
-						cacheSites = append(cacheSites, cacheSite{
-							Key: m.Key, Name: m.Name, Voter: voter,
-							Hot: hot, Cats: cats, Names: cacheNames(names),
-						})
+						cacheSites = append(cacheSites, cs)
 						cacheMu.Unlock()
 					}
-					var got []ballot
-					for _, it := range hot {
-						got = append(got, ballot{
-							SiteKey: m.Key, SiteName: m.Name, Voter: voter,
-							Bucket: hotLaneID, Item: it,
-						})
-					}
-					for _, cat := range cats {
-						for _, it := range cat.Items {
-							if !usableTitle(it.Title) {
-								continue
-							}
+					if !limited {
+						var got []ballot
+						for _, it := range hot {
 							got = append(got, ballot{
 								SiteKey: m.Key, SiteName: m.Name, Voter: voter,
-								Cat: cat.Name, Item: it,
+								Bucket: hotLaneID, Item: it,
 							})
 						}
-					}
-					if len(got) > 0 {
-						got := got
-						key := m.Key
-						a.post(func() {
-							if ctx.Err() != nil {
-								return
+						for _, cat := range cats {
+							for _, it := range cat.Items {
+								if !usableTitle(it.Title) {
+									continue
+								}
+								got = append(got, ballot{
+									SiteKey: m.Key, SiteName: m.Name, Voter: voter,
+									Cat: cat.Name, Item: it,
+								})
 							}
-							a.mergeBallots(key, got)
-						})
+						}
+						if len(got) > 0 {
+							batchMu.Lock()
+							pendingBallots = append(pendingBallots, ballotUpdate{siteKey: m.Key, fresh: got})
+							batchMu.Unlock()
+						}
 					}
-				} else {
-					publish()
 				}
 			}(i, s)
 		}
@@ -381,17 +453,19 @@ func (a *App) keepWorkingMode(ctx context.Context, full *source.Catalog, silent 
 				cancel()
 				checked.Add(1)
 				if err == nil && len(chs) > 0 {
-					mu.Lock()
+					stateMu.Lock()
 					okLive[i] = true
-					mu.Unlock()
+					stateMu.Unlock()
 					cacheMu.Lock()
 					cacheLives = append(cacheLives, lv.URL)
 					cacheMu.Unlock()
 				}
-				publish()
+				markPublish()
 			}(i, lv)
 		}
 		wg.Wait()
+		close(stop)
+		<-tickDone
 		// Persist the dead list from this pass: sources that failed are skipped
 		// for deadBlacklistTTL on the next load instead of being retried every
 		// time, and sources that recovered are removed.
@@ -426,18 +500,9 @@ func (a *App) keepWorkingMode(ctx context.Context, full *source.Catalog, silent 
 		if ctx.Err() == nil && (len(cacheSites) > 0 || len(cacheLives) > 0) {
 			a.writeCache(&cacheData{Ref: ref, Sites: cacheSites, Lives: cacheLives})
 		}
-		a.post(func() {
-			if ctx.Err() != nil {
-				return
-			}
-			a.loading = false
-			a.loadNote = ""
-			if len(a.catalog.Sites) == 0 && len(a.catalog.Lives) == 0 {
-				a.loadErr = "配置都打开了，但没有能列出内容的源"
-				a.screen = screenEmpty
-			}
-			a.doneLoad()
-		})
+		// The final flush carries whatever the last tick did not publish,
+		// and ends the load on the same UI-thread turn.
+		flush(true)
 	}()
 }
 

@@ -16,6 +16,11 @@ import (
 const (
 	sideWidth float32 = 224
 	pagePad   float32 = 28
+
+	// maxSidebarItems keeps one frame bounded when a subscription brings
+	// thousands of sources. The rest remain reachable through search in
+	// 管理 → 片源.
+	maxSidebarItems = 200
 )
 
 var cardMotion = ui.Animation{Duration: 200 * time.Millisecond, Ease: ui.EaseOut}
@@ -458,7 +463,11 @@ func (a *App) viewSidebar(c *ui.Context, th *ui.Theme) {
 			for _, g := range a.sideGroups() {
 				g := g
 				ui.SidebarSection(c, sideGroupTitle(g), a.sidebarOpenState(g.name, a.groupHasSelection(g)), func() {
-					for _, s := range g.sites {
+					sites := g.sites
+					if len(sites) > maxSidebarItems {
+						sites = sites[:maxSidebarItems]
+					}
+					for _, s := range sites {
 						m := s.Meta()
 						key := m.Key
 						item := ui.SidebarItem(c, "site:"+key, iconScreen, m.Name)
@@ -476,7 +485,15 @@ func (a *App) viewSidebar(c *ui.Context, th *ui.Theme) {
 							})
 						})
 					}
-					for _, li := range g.lives {
+					if len(g.sites) > len(sites) {
+						ui.Text(c, fmt.Sprintf("还有 %d 个片源，到「管理 → 片源」搜索", len(g.sites)-len(sites))).
+							FontSize(fontCaption).TextColor(th.TextMuted).Wrap()
+					}
+					lives := g.lives
+					if len(lives) > maxSidebarItems {
+						lives = lives[:maxSidebarItems]
+					}
+					for _, li := range lives {
 						lv, idx := li.entry, li.idx
 						item := ui.SidebarItem(c, fmt.Sprintf("live:%d", idx), iconSignal, lv.Name)
 						hovered := item.Hovered()
@@ -492,6 +509,10 @@ func (a *App) viewSidebar(c *ui.Context, th *ui.Theme) {
 								})
 							})
 						})
+					}
+					if len(g.lives) > len(lives) {
+						ui.Text(c, fmt.Sprintf("还有 %d 个直播源", len(g.lives)-len(lives))).
+							FontSize(fontCaption).TextColor(th.TextMuted).Wrap()
 					}
 				})
 			}

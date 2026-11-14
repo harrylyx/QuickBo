@@ -179,6 +179,7 @@ type App struct {
 	subBatch       bool                  // 订阅批量管理模式
 	subConfirm     []string              // refs waiting on a batch-delete confirmation
 	srcFilter      string                // 片源管理搜索关键字
+	srcShown       int                   // 片源管理当前渲染的行数（大订阅分页）
 	srcSort        string                // 片源排序键：srcSort* 常量
 	srcHealth      string                // 片源健康度筛选：srcShow* 常量
 	srcView        string                // 片源分组视图：srcGroup* 常量
@@ -259,10 +260,13 @@ type App struct {
 	home          []homeLane
 	homeHits      []homeLane
 	homeSearching bool
-	ballots       []ballot
-	catFacts      []catFact
-	aggExtra      *homeRule
-	moreFrom      string
+	// homeGen invalidates a background tally when newer facts or rules arrive.
+	homeGen        int
+	asyncHomeTally bool // test hook: exercise the windowed, async tally path
+	ballots        []ballot
+	catFacts       []catFact
+	aggExtra       *homeRule
+	moreFrom       string
 	// The aggregated live directory (live_agg.go): one entry per channel
 	// name, the name currently open, and the lines failover may walk.
 	liveAggs       []liveAgg

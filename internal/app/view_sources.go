@@ -28,6 +28,11 @@ const (
 	srcGroupSub    = "按订阅分组"
 	srcGroupKind   = "按类型分组"
 	srcGroupHealth = "按健康度分组"
+
+	// sourcePageRows bounds the rows built in one frame. A 10k-site
+	// subscription would otherwise rebuild ten thousand widgets per frame;
+	// the search box and the "more" button still reach every source.
+	sourcePageRows = 200
 )
 
 var (
@@ -97,6 +102,14 @@ func (a *App) viewSources(c *ui.Context, th *ui.Theme) {
 		}
 
 		sites := a.filteredSites()
+		matched := len(sites)
+		limit := a.srcShown
+		if limit < sourcePageRows {
+			limit = sourcePageRows
+		}
+		if len(sites) > limit {
+			sites = sites[:limit]
+		}
 		total, ok, fail, untested, avg := a.sourceSummary()
 		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 			ui.Text(c, fmt.Sprintf("共 %d 个片源", total)).FontSize(fontCaption).TextColor(th.TextMuted)
@@ -157,6 +170,15 @@ func (a *App) viewSources(c *ui.Context, th *ui.Theme) {
 				}
 			})
 		})
+		if matched > len(sites) {
+			ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
+				ui.Text(c, fmt.Sprintf("共 %d 个片源，当前显示 %d 个；可搜索，或继续加载", matched, len(sites))).
+					FontSize(fontCaption).TextColor(th.TextMuted)
+				if ui.Button(c, "再显示一批").Clicked() {
+					a.srcShown = limit + sourcePageRows
+				}
+			})
+		}
 	})
 }
 

@@ -124,10 +124,15 @@ func cacheNames(cats []model.Category) []cacheName {
 
 func factsFromCache(c *cacheData, allowed map[string]bool) []catFact {
 	var out []catFact
+	sites := 0
 	for _, s := range c.Sites {
 		if allowed != nil && !allowed[s.Key] {
 			continue
 		}
+		if sites >= homeSourceLimit || len(out) >= homeFactLimit {
+			break
+		}
+		sites++
 		names := s.Names
 		if len(names) == 0 {
 			for _, cat := range s.Cats {
@@ -135,6 +140,9 @@ func factsFromCache(c *cacheData, allowed map[string]bool) []catFact {
 			}
 		}
 		for _, n := range names {
+			if len(out) >= homeFactLimit {
+				break
+			}
 			name := strings.TrimSpace(n.Name)
 			if name == "" {
 				continue
@@ -175,11 +183,24 @@ func (c *cacheData) hasLive(raw string) bool {
 // rules to Cat. A non-nil allowed set drops sources removed since caching.
 func (c *cacheData) ballots(allowed map[string]bool) []ballot {
 	var out []ballot
+	sites := 0
 	for _, s := range c.Sites {
 		if allowed != nil && !allowed[s.Key] {
 			continue
 		}
+		// Sites collected beyond the home limit are cached by key only so
+		// restoring the cache still shows them in the sidebar.
+		if len(s.Hot) == 0 && len(s.Cats) == 0 {
+			continue
+		}
+		if sites >= homeSourceLimit || len(out) >= homeBallotLimit {
+			break
+		}
+		sites++
 		for _, it := range s.Hot {
+			if len(out) >= homeBallotLimit {
+				break
+			}
 			if !usableTitle(it.Title) {
 				continue
 			}
@@ -190,6 +211,9 @@ func (c *cacheData) ballots(allowed map[string]bool) []ballot {
 		}
 		for _, cat := range s.Cats {
 			for _, it := range cat.Items {
+				if len(out) >= homeBallotLimit {
+					break
+				}
 				out = append(out, ballot{
 					SiteKey: s.Key, SiteName: s.Name, Voter: s.Voter,
 					Cat: cat.Name, Item: it,
@@ -206,15 +230,25 @@ func (c *cacheData) ballots(allowed map[string]bool) []ballot {
 // it starts a background refresh to update the content.
 func (a *App) restoreFromCache(c *cacheData, full *source.Catalog) {
 	a.catalog = &source.Catalog{Parses: full.Parses, Index: full.Index}
+	// Build the lookup once. hasSite/hasLive scan linearly, which made a
+	// 10k-site restore quadratic on the UI thread.
+	cachedSites := make(map[string]bool, len(c.Sites))
+	for _, s := range c.Sites {
+		cachedSites[s.Key] = true
+	}
+	cachedLives := make(map[string]bool, len(c.Lives))
+	for _, u := range c.Lives {
+		cachedLives[strings.TrimSpace(u)] = true
+	}
 	for _, s := range full.Sites {
 		m := s.Meta()
-		if !c.hasSite(m.Key) || a.hidden[sourceHideID(s)] || a.disabled[sourceHideID(s)] || a.blacklisted(m.Name) {
+		if !cachedSites[m.Key] || a.hidden[sourceHideID(s)] || a.disabled[sourceHideID(s)] || a.blacklisted(m.Name) {
 			continue
 		}
 		a.catalog.Sites = append(a.catalog.Sites, s)
 	}
 	for _, lv := range full.Lives {
-		if !c.hasLive(lv.URL) || a.hidden[liveHideID(lv.URL)] || a.blacklisted(lv.Name) {
+		if !cachedLives[strings.TrimSpace(lv.URL)] || a.hidden[liveHideID(lv.URL)] || a.blacklisted(lv.Name) {
 			continue
 		}
 		a.catalog.Lives = append(a.catalog.Lives, lv)
