@@ -63,14 +63,17 @@ type App struct {
 	catalog *source.Catalog
 	// cfgRef is the cache identity of the current load: a single ref, or the
 	// newline-joined enabled refs when several subscriptions are active.
-	cfgRef         string
-	subs           []subscription
-	groupOf        map[string]string
-	loading        bool
-	loadErr        string
-	loadNote       string
-	adding         bool
-	settingsOpen   bool
+	cfgRef       string
+	subs         []subscription
+	groupOf      map[string]string
+	loading      bool
+	loadErr      string
+	loadNote     string
+	adding       bool
+	settingsOpen bool
+	// cacheConfirm names the storage row whose clear is one click from
+	// done: a clear asks twice, as deleting subscriptions does.
+	cacheConfirm   string
 	updates        bool // the update plugin is used (UseUpdater)
 	welcomeEntered bool
 	urlDraft       string

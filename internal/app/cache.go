@@ -2,11 +2,13 @@ package app
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/egoist/mygo/ui"
 	"github.com/harrylyx/QuickBo/internal/model"
 	"github.com/harrylyx/QuickBo/internal/source"
 )
@@ -156,6 +158,73 @@ func factsFromCache(c *cacheData, allowed map[string]bool) []catFact {
 func (a *App) clearCache() {
 	if path := a.cachePath(); path != "" {
 		_ = os.Remove(path)
+	}
+}
+
+// fileSize is one cache file's size, or 0 when it is not there.
+func (a *App) fileSize(path string) int64 {
+	if path == "" {
+		return 0
+	}
+	if st, err := os.Stat(path); err == nil {
+		return st.Size()
+	}
+	return 0
+}
+
+// recordPaths are the bookkeeping records kept beside the settings: dead
+// sources, the parse interfaces' record, and removed subscriptions. Each
+// carries its own TTL; none of it is the user's own data.
+func (a *App) recordPaths() []string {
+	if a.settingsPath == "" {
+		return nil
+	}
+	dir := filepath.Dir(a.settingsPath)
+	return []string{
+		filepath.Join(dir, "dead.json"),
+		filepath.Join(dir, "parse_rank.json"),
+		filepath.Join(dir, "sub_tombstones.json"),
+	}
+}
+
+// clearRecords drops those files and the parse record in memory; the next
+// collection and the next parse refill them. Call it on the UI thread.
+func (a *App) clearRecords() {
+	for _, p := range a.recordPaths() {
+		if p != "" {
+			_ = os.Remove(p)
+		}
+	}
+	a.parseMu.Lock()
+	a.parseRank = nil
+	a.parseMu.Unlock()
+}
+
+// clearPosterCache drops the decoded posters and their blurred backdrops
+// from memory; the covers on screen reload as they come into view again.
+// In-flight downloads still land. Call it on the UI thread.
+func (a *App) clearPosterCache() {
+	a.posters = map[string]*ui.Bitmap{}
+	a.posterUsed = map[string]int64{}
+	a.art = map[string]artExtras{}
+	a.fetching = map[string]bool{}
+	a.failed = map[string]bool{}
+	a.posterTries = map[string]int{}
+	a.coverLaid = map[string]bool{}
+}
+
+// humanBytes sizes a cache the way the file dialog would.
+func humanBytes(n int64) string {
+	b := float64(n)
+	switch {
+	case b >= 1<<30:
+		return fmt.Sprintf("%.1f GB", b/(1<<30))
+	case b >= 1<<20:
+		return fmt.Sprintf("%.1f MB", b/(1<<20))
+	case b >= 1<<10:
+		return fmt.Sprintf("%.1f KB", b/(1<<10))
+	default:
+		return fmt.Sprintf("%d B", n)
 	}
 }
 

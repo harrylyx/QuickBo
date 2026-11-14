@@ -402,12 +402,61 @@ func (a *App) viewSettings(c *ui.Context, th *ui.Theme) {
 
 			a.viewUpdateSettings(c, th)
 
+			a.viewStorageSettings(c, th)
+
 			ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
 				if ui.PrimaryButton(c, "完成").Clicked() {
 					a.settingsOpen = false
 				}
 			})
 		})
+	})
+}
+
+// viewStorageSettings is the settings modal's 存储 section: each cache
+// with what it takes and a way to drop it. A clear asks twice, as
+// deleting subscriptions does, so a slip does not wipe the collection.
+func (a *App) viewStorageSettings(c *ui.Context, th *ui.Theme) {
+	// No settingsPath means nowhere to keep the files (tests); the
+	// in-memory posters alone are not worth the row.
+	if a.settingsPath == "" {
+		return
+	}
+	ui.Text(c, "存储").FontSize(fontCaption).TextColor(th.TextMuted)
+	ui.Column(c).Gap(6).Children(func() {
+		var records int64
+		for _, p := range a.recordPaths() {
+			records += a.fileSize(p)
+		}
+		type cacheRow struct {
+			key, name, size string
+			clear           func()
+		}
+		rows := []cacheRow{
+			{"posters", "图片缓存", fmt.Sprintf("%d 张", len(a.posters)), a.clearPosterCache},
+			{"index", "首页采集", humanBytes(a.fileSize(a.cachePath())), a.clearCache},
+			{"configs", "订阅解析", humanBytes(a.fileSize(a.configCachePath())), a.clearConfigCache},
+			{"records", "临时记录", humanBytes(records), a.clearRecords},
+		}
+		for _, row := range rows {
+			row := row
+			ui.Row(c).Gap(12).AlignItems(ui.Center).Children(func() {
+				ui.Text(c, row.name).FontSize(fontBody)
+				ui.Text(c, row.size).FontSize(fontCaption).TextColor(th.TextMuted)
+				ui.Box(c).Grow(1)
+				if a.cacheConfirm == row.key {
+					if ui.Button(c, "取消").Clicked() {
+						a.cacheConfirm = ""
+					}
+					if ui.Button(c, "确认清除").Clicked() {
+						row.clear()
+						a.cacheConfirm = ""
+					}
+				} else if ui.Button(c, "清除").Clicked() {
+					a.cacheConfirm = row.key
+				}
+			})
+		}
 	})
 }
 
