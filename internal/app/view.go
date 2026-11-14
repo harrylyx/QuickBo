@@ -418,7 +418,6 @@ func (a *App) viewSidebar(c *ui.Context, th *ui.Theme) {
 		side := ui.Sidebar(c, &a.sideSel, func() {
 			ui.SidebarSection(c, "导航", nil, func() {
 				ui.SidebarItem(c, "home", iconHome, "首页")
-				ui.SidebarItem(c, "manage", iconSliders, "管理")
 			})
 			ui.SidebarSection(c, "资料库", nil, func() {
 				ui.SidebarItem(c, "history", iconClock, "历史")
@@ -469,18 +468,31 @@ func (a *App) viewSidebar(c *ui.Context, th *ui.Theme) {
 			a.onSide()
 		}
 		ui.Box(c).FillWidth().Height(1).Background(th.Border)
-		entry := ui.Row(c.Key("settings-entry")).FillWidth().Padding(10, 10).Radius(8).AlignItems(ui.Center).Gap(10).
-			OnClick(a.openSettings).Cursor(ui.CursorPointer).Tooltip("打开设置").Label("设置")
-		switch {
-		case a.settingsOpen:
-			entry.Background(th.Accent.Alpha(0.12))
-		case entry.Hovered():
-			entry.Background(th.SurfaceHover)
-		}
-		entry.Transition(ui.ElementTransition{Duration: 150 * time.Millisecond}).Children(func() {
-			ui.Icon(c, iconGear).Size(18, 18).TextColor(th.TextMuted)
-			ui.Text(c, "设置").FontSize(fontBody).TextColor(th.Text)
+		// The column's own gap is 18; these two sit closer, 管理 above 设置.
+		ui.Column(c).Gap(4).Children(func() {
+			a.sideEntry(c, th, "manage-entry", "管理", "打开管理", iconSliders, isManage(a.screen), func() {
+				a.settingsOpen = false
+				a.goManage(a.manageLast)
+			})
+			a.sideEntry(c, th, "settings-entry", "设置", "打开设置", iconGear, a.settingsOpen, a.openSettings)
 		})
+	})
+}
+
+// sideEntry is a full-width row at the bottom of the sidebar: an icon and a
+// label, a hover fill, and the accent tint while it is the open page.
+func (a *App) sideEntry(c *ui.Context, th *ui.Theme, key, label, tip string, icon *ui.SVG, on bool, click func()) {
+	entry := ui.Row(c.Key(key)).FillWidth().Padding(10, 10).Radius(8).AlignItems(ui.Center).Gap(10).
+		OnClick(click).Cursor(ui.CursorPointer).Tooltip(tip).Label(label)
+	switch {
+	case on:
+		entry.Background(th.Accent.Alpha(0.12))
+	case entry.Hovered():
+		entry.Background(th.SurfaceHover)
+	}
+	entry.Transition(ui.ElementTransition{Duration: 150 * time.Millisecond}).Children(func() {
+		ui.Icon(c, icon).Size(18, 18).TextColor(th.TextMuted)
+		ui.Text(c, label).FontSize(fontBody).TextColor(th.Text)
 	})
 }
 

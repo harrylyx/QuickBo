@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"image"
 	"os"
 	"path/filepath"
 	"strings"
@@ -478,20 +479,36 @@ func TestSidebarGroupsStartCollapsedAndLabelled(t *testing.T) {
 	}
 }
 
-// The sidebar's one 管理 entry opens a page whose tabs reach subscriptions,
-// sources, the blacklist and the home rows.
+// The sidebar's 管理 button, above 设置, opens a page whose tabs reach
+// subscriptions, sources, the blacklist and the home rows. It is not a
+// navigation item, and it tints while that page is open.
 func TestManagePageTabs(t *testing.T) {
 	a := New()
 	a.settingsPath = ""
 	a.catalog = &source.Catalog{Sites: []source.Source{cmsFake{}}}
 	a.screen, a.sideSel, a.lastSide = screenHome, "home", "home"
 	tt := ui.NewTester(a.View, 1200, 800)
+	if manageInNav(tt.Texts()) {
+		t.Fatalf("管理 is still a navigation item: %q", tt.Texts())
+	}
+	manage, ok := tt.Find("管理")
+	settings, okS := tt.Find("设置")
+	if !ok || !okS || manage.Y >= settings.Y {
+		t.Fatalf("管理 must sit above 设置: manage %v settings %v", manage, settings)
+	}
 	if err := tt.Click("管理"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Frame()
+	tt.Advance(200 * time.Millisecond)
 	if a.screen != screenSubs || a.sideSel != "manage" {
 		t.Fatalf("screen %q side %q", a.screen, a.sideSel)
+	}
+	if manageInNav(tt.Texts()) {
+		t.Fatalf("管理 became a navigation item: %q", tt.Texts())
+	}
+	if !sideEntryLit(tt, "管理") {
+		t.Fatal("管理 must highlight while its page is open")
 	}
 	// In order: the last tab clicked is the one that must come back.
 	for _, tab := range [][2]string{{"黑名单 0", screenBlacklist}, {"片源 0", screenSources}} {
@@ -504,13 +521,66 @@ func TestManagePageTabs(t *testing.T) {
 			t.Fatalf("%s opened %q", label, a.screen)
 		}
 	}
-	// Leaving and coming back reopens the last tab.
+	// Leaving clears the button; coming back reopens the last tab.
 	a.goHome()
+	tt.Frame()
+	tt.Advance(200 * time.Millisecond)
+	if sideEntryLit(tt, "管理") {
+		t.Fatal("管理 must clear after leaving its page")
+	}
 	a.sideSel = "manage"
 	a.onSide()
 	if a.screen != screenSources {
 		t.Fatalf("manage must reopen the last tab, got %q", a.screen)
 	}
+}
+
+// manageInNav reports whether 管理 sits in the 导航 section, between 首页 and 资料库.
+func manageInNav(texts []string) bool {
+	home, lib := -1, -1
+	for i, s := range texts {
+		if s == "首页" && home < 0 {
+			home = i
+		}
+		if s == "资料库" && lib < 0 {
+			lib = i
+		}
+	}
+	if home < 0 || lib < home {
+		return true
+	}
+	for _, s := range texts[home+1 : lib] {
+		if s == "管理" {
+			return true
+		}
+	}
+	return false
+}
+
+// sideEntryLit reports whether label's sidebar row is tinted against 设置,
+// which stays flat unless its own panel is open.
+func sideEntryLit(tt *ui.Tester, label string) bool {
+	row, ok := tt.Find(label)
+	flat, okFlat := tt.Find("设置")
+	if !ok || !okFlat || label == "设置" {
+		return false
+	}
+	img := tt.Image()
+	cr, cg, _ := corner(img, row)
+	sr, sg, _ := corner(img, flat)
+	// The open row picks up the rose accent. 设置 stays the flat sidebar
+	// fill, so the open row is the redder of the two.
+	return int(cr)-int(cg) > int(sr)-int(sg)+800
+}
+
+func corner(img *image.RGBA, r ui.Rect) (uint32, uint32, uint32) {
+	x, y := int(r.X+4), int(r.Y+4)
+	b := img.Bounds()
+	if x < b.Min.X || y < b.Min.Y || x >= b.Max.X || y >= b.Max.Y {
+		return 0, 0, 0
+	}
+	cr, cg, cb, _ := img.At(x, y).RGBA()
+	return cr, cg, cb
 }
 
 // The appearance follows the system unless light or dark is chosen; the

@@ -15,7 +15,7 @@ func (a *App) viewRules(c *ui.Context, th *ui.Theme) {
 	ui.Scroll(c).Grow(1).Children(func() {
 		ui.Column(c).Gap(16).Children(func() {
 			ui.Row(c).AlignItems(ui.Center).Gap(12).Children(func() {
-				ui.Text(c, "按住左侧把手拖动可调整首页各行的顺序。「最新影视」除按关键字匹配分类外，还会聚合各源首页候选，按多源共同收录、清晰度、年份排序。各行按关键字匹配片源分类名；改动先留在这里，点「保存」才写入设置并按本地缓存重算首页，不会重新联网采集。要更新首页候选和分类内容，点「重新采集」。").TextColor(th.TextMuted).Shrink(1).Wrap()
+				ui.Text(c, "按住左侧或右侧把手拖动可调整顺序。「最新影视」除按关键字匹配分类外，还会聚合各源首页候选，按多源共同收录、清晰度、年份排序。各行按关键字匹配片源分类名；改动先留在这里，点「保存」才写入设置并按本地缓存重算首页，不会重新联网采集。要更新首页候选和分类内容，点「重新采集」。").TextColor(th.TextMuted).Shrink(1).Wrap()
 				ui.Column(c).Grow(1)
 				if a.rulesDirty {
 					ui.Text(c, "有未保存的修改").TextColor(th.Accent).SingleLine()
@@ -77,6 +77,7 @@ func (a *App) ruleRow(c *ui.Context, th *ui.Theme, i int) bool {
 	}
 	id := a.homeRules[i].ID
 	keep := true
+	held := false
 	row := ui.Column(c.Key("rule:"+id)).FillWidth().Padding(10, 12).Radius(8).Background(th.Surface).Gap(6)
 	if i == 0 {
 		if b := row.LayoutBounds(); b.H > 0 {
@@ -90,13 +91,18 @@ func (a *App) ruleRow(c *ui.Context, th *ui.Theme, i int) bool {
 	}
 	row.Children(func() {
 		ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(6).Children(func() {
-			a.ruleGrip(c, th, i, id)
+			if a.ruleGrip(c, th, i, id, "l") {
+				held = true
+			}
 			name := ui.TextInput(c.Key("rule-name:"+id), &a.ruleNames[i]).Placeholder("分类名称").Width(220)
 			a.watchRule(name, i, i*2)
 			ui.Column(c).Grow(1)
 			if a.ruleIconBtn(c, th, "rule-drop:"+id, iconTrash, "删除", th.Danger).Clicked() {
 				a.deleteRule(i)
 				keep = false
+			}
+			if a.ruleGrip(c, th, i, id, "r") {
+				held = true
 			}
 		})
 		if !keep {
@@ -105,6 +111,12 @@ func (a *App) ruleRow(c *ui.Context, th *ui.Theme, i int) bool {
 		words := ui.TextInput(c.Key("rule-words:"+id), &a.ruleWords[i]).Placeholder("关键字，用顿号或逗号分开").FillWidth()
 		a.watchRule(words, i, i*2+1)
 	})
+	// Both handles report their own press. Drop only once neither is held,
+	// or a drag on the right would end on the frame the left is idle.
+	if a.ruleDragID == id && !held {
+		a.ruleDropped = true
+		c.Invalidate()
+	}
 	return keep
 }
 
@@ -141,11 +153,13 @@ type ruleSettle struct {
 	residual float32
 }
 
-// ruleGrip is a row's drag handle. Dragging it lifts the row and moves it
-// with the pointer while the others slide aside; letting go drops it there.
-// Its menu moves the row without dragging.
-func (a *App) ruleGrip(c *ui.Context, th *ui.Theme, i int, id string) {
-	grip := ui.Column(c.Key("rule-grip:"+id)).Size(26, 30).Radius(6).Center().
+// ruleGrip is one of a row's two drag handles (side "l" or "r"). Dragging
+// either lifts the row and moves it with the pointer while the others
+// slide aside. It reports whether the pointer still holds this handle;
+// the row drops only when both have been let go. Its menu moves the row
+// without dragging.
+func (a *App) ruleGrip(c *ui.Context, th *ui.Theme, i int, id, side string) bool {
+	grip := ui.Column(c.Key("rule-grip:"+side+":"+id)).Size(26, 30).Radius(6).Center().
 		Cursor(ui.CursorGrab).Tooltip("拖动调整顺序，右键可移到最前或最后").Label("拖动调整顺序")
 	fg := th.TextMuted
 	switch {
@@ -186,12 +200,7 @@ func (a *App) ruleGrip(c *ui.Context, th *ui.Theme, i int, id string) {
 			a.ruleDragDY += dy
 		}
 	}
-	if a.ruleDragID == id && !held {
-		// Let go (or the press was canceled): drop at the top of the next
-		// frame, so this one still builds every row where it was.
-		a.ruleDropped = true
-		c.Invalidate()
-	}
+	return held
 }
 
 // ruleDragTarget is the index the dragged row would drop at now.

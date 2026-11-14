@@ -306,8 +306,18 @@ func TestMoveRuleToCarriesDrafts(t *testing.T) {
 	}
 }
 
-// Dragging a row's handle down past two rows drops it there.
+// Dragging a row's left handle down past two rows drops it there.
 func TestDragRuleHandleReorders(t *testing.T) {
+	dragRuleHandle(t, false)
+}
+
+// The same drop works from the handle on the right of the row.
+func TestDragRuleHandleFromTheRightReorders(t *testing.T) {
+	dragRuleHandle(t, true)
+}
+
+func dragRuleHandle(t *testing.T, right bool) {
+	t.Helper()
 	a := New()
 	a.settingsPath = ""
 	a.catalog = &source.Catalog{}
@@ -316,11 +326,27 @@ func TestDragRuleHandleReorders(t *testing.T) {
 	a.goManage(screenRules)
 	tt := ui.NewTester(a.View, 1200, 900)
 	tt.Frame()
-	grip, ok := tt.Find("拖动调整顺序") // the first row's handle
+	grips := 0
+	for _, s := range tt.Texts() {
+		if s == "拖动调整顺序" {
+			grips++
+		}
+	}
+	if grips != 8 {
+		t.Fatalf("each of the 4 rows needs a handle on both sides, got %d", grips)
+	}
+	grip, ok := tt.Find("拖动调整顺序") // the first row's left handle
 	if !ok || a.rulePitch <= 0 {
 		t.Fatalf("no handle or row pitch %v: %q", a.rulePitch, tt.Texts())
 	}
 	x, y := grip.X+grip.W/2, grip.Y+grip.H/2
+	if right {
+		del, ok := tt.Find("删除")
+		if !ok {
+			t.Fatal("no delete button to place the right handle")
+		}
+		x, y = del.X+del.W+6+13, del.Y+del.H/2
+	}
 	down := 2 * a.rulePitch
 	tt.Press(x, y)
 	for step := float32(1); step <= 10; step++ {
